@@ -7,10 +7,11 @@ Visits each property's detail page to get the exact street address and coordinat
 import asyncio
 import json
 import re
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import urlencode
 
 from playwright.async_api import async_playwright
 
+from browser_utils import create_browser_context, dismiss_popups
 import config
 
 
@@ -22,31 +23,13 @@ def build_search_url(dest_id: str, dest_type: str) -> str:
         "checkin": config.CHECK_IN,
         "checkout": config.CHECK_OUT,
         "group_adults": config.GROUP_SIZE,
-        "no_rooms": max(1, config.MIN_BEDROOMS),
+        "no_rooms": 1,
         "selected_currency": config.CURRENCY,
         # Property types: 201=apartment, 220=chalet, 213=holiday home
         "nflt": "ht_id=201;ht_id=220;ht_id=213"
         + (";hotelfacility=80" if config.REQUIRE_SAUNA else ""),
     }
     return "https://www.booking.com/searchresults.html?" + urlencode(params)
-
-
-async def dismiss_popups(page):
-    """Dismiss cookie banners and sign-in prompts."""
-    for selector in [
-        "button#onetrust-accept-btn-handler",
-        "button[aria-label='Dismiss sign-in info.']",
-        "[data-testid='accept-btn']",
-        "button.fc-cta-consent",
-        "[aria-label='Close']",
-    ]:
-        try:
-            btn = page.locator(selector)
-            if await btn.is_visible(timeout=1500):
-                await btn.click()
-                await asyncio.sleep(0.3)
-        except Exception:
-            pass
 
 
 def parse_price(text: str) -> float | None:
@@ -294,11 +277,8 @@ async def scrape_all(dest_ids: dict) -> list[dict]:
     all_properties = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            locale="en-US",
-            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+        browser, context = await create_browser_context(
+            p, extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
         )
 
         for resort in config.RESORTS:

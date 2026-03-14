@@ -47,20 +47,27 @@ jobs:
 
       - name: Override config from inputs
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUT_CHECK_IN: ${{ github.event.inputs.check_in }}
+          INPUT_CHECK_OUT: ${{ github.event.inputs.check_out }}
+          INPUT_MAX_PRICE: ${{ github.event.inputs.max_price_pp }}
         run: |
           python - <<'PYEOF'
-          import json
+          import os
+          import re
 
           overrides = []
-          check_in = "${{ github.event.inputs.check_in }}"
-          check_out = "${{ github.event.inputs.check_out }}"
-          max_price = "${{ github.event.inputs.max_price_pp }}"
+          check_in = os.environ.get("INPUT_CHECK_IN", "")
+          check_out = os.environ.get("INPUT_CHECK_OUT", "")
+          max_price = os.environ.get("INPUT_MAX_PRICE", "")
 
-          if check_in:
+          # Validate date format
+          date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+          if check_in and date_re.match(check_in):
               overrides.append(f'CHECK_IN = "{check_in}"')
-          if check_out:
+          if check_out and date_re.match(check_out):
               overrides.append(f'CHECK_OUT = "{check_out}"')
-          if max_price:
+          if max_price and max_price.isdigit():
               overrides.append(f'MAX_PRICE_PER_PERSON_CHF = {max_price}')
 
           if overrides:
@@ -77,8 +84,9 @@ jobs:
       - name: Run ski search
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          INPUT_SKIP_SCRAPE: ${{ github.event.inputs.skip_scrape }}
         run: |
-          if [ "${{ github.event.inputs.skip_scrape }}" = "true" ] && [ -f raw_results.json ]; then
+          if [ "$INPUT_SKIP_SCRAPE" = "true" ] && [ -f raw_results.json ]; then
             python ski_search.py --from-cache raw_results.json
           else
             python ski_search.py
