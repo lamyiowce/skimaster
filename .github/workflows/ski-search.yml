@@ -1,0 +1,111 @@
+name: Ski Accommodation Search
+
+on:
+  workflow_dispatch:
+    inputs:
+      check_in:
+        description: "Check-in date (YYYY-MM-DD)"
+        required: false
+        default: ""
+      check_out:
+        description: "Check-out date (YYYY-MM-DD)"
+        required: false
+        default: ""
+      max_price_pp:
+        description: "Max price per person (CHF)"
+        required: false
+        default: ""
+      skip_scrape:
+        description: "Skip scraping (use cached results)"
+        required: false
+        type: boolean
+        default: false
+
+  # Uncomment for weekly schedule:
+  # schedule:
+  #   - cron: "0 8 * * 0"  # Every Sunday at 8am UTC
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Override config from inputs
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          python - <<'PYEOF'
+          import json
+
+          overrides = []
+          check_in = "${{ github.event.inputs.check_in }}"
+          check_out = "${{ github.event.inputs.check_out }}"
+          max_price = "${{ github.event.inputs.max_price_pp }}"
+
+          if check_in:
+              overrides.append(f'CHECK_IN = "{check_in}"')
+          if check_out:
+              overrides.append(f'CHECK_OUT = "{check_out}"')
+          if max_price:
+              overrides.append(f'MAX_PRICE_PER_PERSON_CHF = {max_price}')
+
+          if overrides:
+              with open("config_overrides.py", "w") as f:
+                  f.write("\n".join(overrides) + "\n")
+              # Patch config.py to load overrides
+              with open("config.py", "a") as f:
+                  f.write("\ntry:\n    from config_overrides import *\nexcept ImportError:\n    pass\n")
+              print("Applied config overrides:", overrides)
+          else:
+              print("No config overrides to apply.")
+          PYEOF
+
+      - name: Run ski search
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ "${{ github.event.inputs.skip_scrape }}" = "true" ] && [ -f raw_results.json ]; then
+            python ski_search.py --from-cache raw_results.json
+          else
+            python ski_search.py
+          fi
+
+      - name: Commit results and caches
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f results.md results.csv dest_ids.json raw_results.json enriched_results.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update ski search results $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ski-search-results
+          path: |
+            results.md
+            results.csv
+
+      - name: Post summary
+        run: |
+          echo "## Ski Search Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat results.md >> $GITHUB_STEP_SUMMARY
