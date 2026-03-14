@@ -6,12 +6,12 @@ Caches results in dest_ids.json so lookup only happens once per resort.
 
 import asyncio
 import json
-import os
 import re
 from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import async_playwright
 
+from browser_utils import create_browser_context, dismiss_popups
 import config
 
 
@@ -21,19 +21,7 @@ async def resolve_single_dest_id(resort: str, page) -> dict | None:
         await page.goto("https://www.booking.com", wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(1)
 
-        # Dismiss cookie banner if present
-        for selector in [
-            "button#onetrust-accept-btn-handler",
-            "button[aria-label='Dismiss sign-in info.']",
-            "[data-testid='accept-btn']",
-        ]:
-            try:
-                btn = page.locator(selector)
-                if await btn.is_visible(timeout=2000):
-                    await btn.click()
-                    await asyncio.sleep(0.5)
-            except Exception:
-                pass
+        await dismiss_popups(page)
 
         # Type resort name in search box
         search_box = page.locator("[name='ss']")
@@ -95,10 +83,11 @@ async def resolve_single_dest_id(resort: str, page) -> dict | None:
 
 def load_cache() -> dict:
     """Load cached dest_ids from file."""
-    if os.path.exists(config.DEST_IDS_CACHE):
+    try:
         with open(config.DEST_IDS_CACHE) as f:
             return json.load(f)
-    return {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 def save_cache(cache: dict):
@@ -119,11 +108,7 @@ async def resolve_dest_ids(resorts: list[str]) -> dict:
     print(f"Resolving {len(to_resolve)} resort dest_ids (cached: {len(resorts) - len(to_resolve)})...")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            locale="en-US",
-        )
+        browser, context = await create_browser_context(p)
         page = await context.new_page()
 
         for resort in to_resolve:

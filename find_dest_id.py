@@ -8,19 +8,17 @@ Usage:
 import asyncio
 import sys
 
-from resolve_dest_ids import resolve_single_dest_id
 from playwright.async_api import async_playwright
+
+from browser_utils import create_browser_context
+from resolve_dest_ids import resolve_single_dest_id
 
 
 async def main(resort: str):
     print(f"Looking up Booking.com dest_id for: {resort}")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            locale="en-US",
-        )
+        browser, context = await create_browser_context(p)
         page = await context.new_page()
         result = await resolve_single_dest_id(resort, page)
         await browser.close()
