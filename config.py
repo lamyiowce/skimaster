@@ -47,7 +47,7 @@ OUTPUT_CSV = "results.csv"
 
 # OpenAI API
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_MODEL = "gpt-4o"
+OPENAI_MODEL = "gpt-4.1"
 
 # Cache files
 DEST_IDS_CACHE = "dest_ids.json"
