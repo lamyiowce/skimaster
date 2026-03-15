@@ -274,7 +274,12 @@ async def scrape_resort(
 
 
 async def scrape_all(dest_ids: dict) -> list[dict]:
-    """Scrape all resorts and return combined property list."""
+    """Scrape all resort groups and return combined property list.
+
+    For each resort group the full list of configured villages is searched.
+    Properties from all villages are tagged with the parent resort group name.
+    Duplicates (same URL appearing in two village searches) are removed.
+    """
     all_properties = []
 
     async with async_playwright() as p:
@@ -282,14 +287,31 @@ async def scrape_all(dest_ids: dict) -> list[dict]:
             p, extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
         )
 
-        for resort in config.RESORTS:
-            if resort not in dest_ids:
-                print(f"  Skipping {resort} — no dest_id")
-                continue
+        for resort_group, villages in config.RESORTS.items():
+            print(f"\n=== Resort group: {resort_group} ({len(villages)} village(s)) ===")
+            seen_urls: set[str] = set()
+            group_properties = []
 
-            props = await scrape_resort(resort, dest_ids[resort], context)
-            all_properties.extend(props)
-            await asyncio.sleep(3)  # Polite delay between resorts
+            for village in villages:
+                if village not in dest_ids:
+                    print(f"  Skipping {village} — no dest_id resolved")
+                    continue
+
+                props = await scrape_resort(resort_group, dest_ids[village], context)
+
+                # Deduplicate: a property can appear in multiple village searches
+                # if the Booking.com destination areas overlap.
+                new_props = [p for p in props if p.get("url") not in seen_urls]
+                for p in new_props:
+                    seen_urls.add(p.get("url", ""))
+                if len(props) != len(new_props):
+                    print(f"    Removed {len(props) - len(new_props)} duplicate(s) from {village}")
+
+                group_properties.extend(new_props)
+                await asyncio.sleep(3)  # Polite delay between village searches
+
+            print(f"  → {len(group_properties)} unique properties for {resort_group}")
+            all_properties.extend(group_properties)
 
         await browser.close()
 

@@ -14,7 +14,7 @@ import json
 import sys
 
 import config
-from resolve_dest_ids import resolve_dest_ids
+from resolve_dest_ids import resolve_dest_ids, all_villages
 from scrape_booking import scrape_all
 from geo_lifts import enrich_all
 from rank_results import filter_properties, rank_with_ai, write_results
@@ -30,7 +30,8 @@ def print_banner():
     print(f"  Budget:           max {config.MAX_PRICE_PER_PERSON_CHF} {config.CURRENCY}/person")
     print(f"  Sauna required:   {config.REQUIRE_SAUNA}")
     print(f"  Max walk to lift: {config.MAX_WALK_TO_LIFT_MINUTES} min")
-    print(f"  Resorts:          {len(config.RESORTS)}")
+    total_villages = sum(len(v) for v in config.RESORTS.values())
+    print(f"  Resorts:          {len(config.RESORTS)} ({total_villages} villages)")
     print(f"  AI model:         {config.OPENAI_MODEL}")
     print(f"  AI key:           {'set' if config.OPENAI_API_KEY else 'NOT SET (fallback ranking)'}")
     print(f"  Output:           {config.OUTPUT_FILE}, {config.OUTPUT_CSV}")
@@ -93,8 +94,9 @@ def main():
         # Full pipeline
         # Step 1: Resolve dest IDs
         print("--- Step 1: Resolving Booking.com destination IDs ---")
-        dest_ids = asyncio.run(resolve_dest_ids(config.RESORTS))
-        print(f"Resolved {len(dest_ids)}/{len(config.RESORTS)} resorts.\n")
+        villages = all_villages()
+        dest_ids = asyncio.run(resolve_dest_ids(villages))
+        print(f"Resolved {len(dest_ids)}/{len(villages)} villages.\n")
 
         # Step 2: Scrape
         print("--- Step 2: Scraping Booking.com ---")
