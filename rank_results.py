@@ -18,6 +18,34 @@ import openai
 import config
 
 
+def parse_bedroom_count(prop: dict) -> int | None:
+    """Extract bedroom count from listing text."""
+    text = prop.get("card_text", "") + " " + prop.get("name", "")
+    patterns = [
+        r"(\d+)\s*bed\s*rooms?",
+        r"(\d+)\s*bedrooms?",
+        r"(\d+)\s*(?:br|bdr|bdrm)s?\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            val = int(match.group(1))
+            if 1 <= val <= 20:
+                return val
+    return None
+
+
+def is_multi_unit(prop: dict) -> bool:
+    """Return True if the listing appears to be multiple separate units."""
+    text = (prop.get("card_text", "") + " " + prop.get("name", "")).lower()
+    patterns = [
+        r"\b[2-9]\s*(?:apartments?|units?|chalets?|villas?)\b",
+        r"\bapartments?\s*[2-9]\b",
+        r"\bmultiple\s+(?:apartments?|units?)\b",
+    ]
+    return any(re.search(p, text) for p in patterns)
+
+
 def parse_capacity(prop: dict) -> int | None:
     """Extract property capacity from listing text."""
     text = prop.get("card_text", "") + " " + prop.get("name", "")
@@ -58,13 +86,20 @@ def calculate_num_nights() -> int:
 
 
 def filter_properties(properties: list[dict]) -> list[dict]:
-    """Apply distance and budget filters."""
+    """Apply distance, budget, bedroom count, and single-unit filters."""
     filtered = []
     num_nights = calculate_num_nights()
     rejected_distance = 0
     rejected_budget = 0
+    rejected_multi_unit = 0
+    rejected_bedrooms = 0
 
     for prop in properties:
+        # Filter: single accommodation unit only (no multi-apartment setups)
+        if config.MAX_ACCOMMODATION_UNITS == 1 and is_multi_unit(prop):
+            rejected_multi_unit += 1
+            continue
+
         # Filter by lift distance (keep unknowns for AI to evaluate)
         walk_min = prop.get("nearest_lift_walk_minutes")
         if walk_min is not None and walk_min > config.MAX_WALK_TO_LIFT_MINUTES:
@@ -73,9 +108,9 @@ def filter_properties(properties: list[dict]) -> list[dict]:
 
         # Filter by budget
         price = prop.get("price")
+        capacity = parse_capacity(prop)
+        prop["parsed_capacity"] = capacity
         if price is not None:
-            capacity = parse_capacity(prop)
-            prop["parsed_capacity"] = capacity
             max_budget = calculate_max_budget(capacity)
 
             if price > max_budget:
@@ -86,15 +121,23 @@ def filter_properties(properties: list[dict]) -> list[dict]:
             effective_guests = min(capacity, config.GROUP_SIZE) if capacity else config.GROUP_SIZE
             prop["price_per_person_per_night"] = round(price / effective_guests / num_nights, 2)
         else:
-            prop["parsed_capacity"] = parse_capacity(prop)
             prop["price_per_person_per_night"] = None
+
+        # Filter: enough bedrooms so no one sleeps in the living room
+        bedroom_count = parse_bedroom_count(prop)
+        prop["bedroom_count"] = bedroom_count
+        if bedroom_count is not None and bedroom_count < config.MIN_BEDROOMS:
+            rejected_bedrooms += 1
+            continue
 
         filtered.append(prop)
 
     print(f"\nFiltering results:")
     print(f"  Input: {len(properties)} properties")
+    print(f"  Rejected (multiple units): {rejected_multi_unit}")
     print(f"  Rejected (too far from lift): {rejected_distance}")
     print(f"  Rejected (over budget): {rejected_budget}")
+    print(f"  Rejected (too few bedrooms): {rejected_bedrooms}")
     print(f"  Remaining: {len(filtered)} properties")
 
     return filtered
@@ -122,6 +165,8 @@ def build_ai_prompt(properties: list[dict]) -> str:
             )
         else:
             lines.append("- Nearest lift: Unknown")
+        if p.get("bedroom_count"):
+            lines.append(f"- Bedrooms: {p['bedroom_count']}")
         if p.get("parsed_capacity"):
             lines.append(f"- Capacity: sleeps {p['parsed_capacity']}")
         if p.get("street_address"):
@@ -134,7 +179,8 @@ def build_ai_prompt(properties: list[dict]) -> str:
 ## Requirements
 - Group size: {config.GROUP_SIZE} friends
 - Dates: {config.CHECK_IN} to {config.CHECK_OUT} ({num_nights} nights)
-- Need: Chalet or large apartment with sauna
+- Need: **Single** chalet or large apartment with sauna — everyone must stay together in one unit
+- At least {config.MIN_BEDROOMS} bedrooms — no one sleeps in the living room
 - Max {config.MAX_WALK_TO_LIFT_MINUTES} minute walk to a ski lift
 - Budget: max {config.MAX_PRICE_PER_PERSON_CHF} CHF per person for the full stay
   - Budget scales with capacity: a property sleeping N pays max N × {config.MAX_PRICE_PER_PERSON_CHF} CHF (capped at {config.GROUP_SIZE} × {config.MAX_PRICE_PER_PERSON_CHF} = {config.GROUP_SIZE * config.MAX_PRICE_PER_PERSON_CHF} CHF)
@@ -154,7 +200,7 @@ For each property, provide:
 3. **Nearest lift** — name, type, and walk time
 4. **Rating** and review count
 5. **Booking link**
-6. **Red flags** — any concerns (too expensive, far from lifts, low rating, small capacity, etc.)
+6. **Red flags** — any concerns (too expensive, far from lifts, low rating, small capacity, too few bedrooms, multiple separate units, etc.)
 7. **Why it's ranked here** — brief justification
 
 Format as a numbered Markdown list. After the top 5, add a brief summary of the overall search quality and any general observations."""
@@ -266,6 +312,7 @@ def write_results(
         "rating",
         "review_count",
         "parsed_capacity",
+        "bedroom_count",
         "nearest_lift_name",
         "nearest_lift_type",
         "nearest_lift_distance_m",

@@ -4,7 +4,8 @@ import os
 
 # Group settings
 GROUP_SIZE = 12
-MIN_BEDROOMS = 4
+MIN_BEDROOMS = 6          # GROUP_SIZE / 2 — ensures no one sleeps in the living room
+MAX_ACCOMMODATION_UNITS = 1  # Everyone must stay in the same apartment/chalet
 
 # Travel dates
 CHECK_IN = "2026-03-21"
