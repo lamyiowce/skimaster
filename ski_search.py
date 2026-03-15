@@ -69,9 +69,25 @@ def main():
         action="store_true",
         help="Scrape without geocoding or AI ranking",
     )
+    parser.add_argument(
+        "--resort",
+        metavar="NAME",
+        help="Run only for a single resort group (substring match, e.g. 'Les Arcs')",
+    )
     args = parser.parse_args()
 
     print_banner()
+
+    # Apply optional single-resort filter
+    resorts = config.RESORTS
+    if args.resort:
+        resorts = {k: v for k, v in config.RESORTS.items() if args.resort.lower() in k.lower()}
+        if not resorts:
+            print(f"No resort matching '{args.resort}'. Available resorts:")
+            for name in config.RESORTS:
+                print(f"  {name}")
+            sys.exit(1)
+        print(f"Test run: limiting to {list(resorts.keys())}\n")
 
     if args.from_enriched:
         # Skip to filtering + ranking
@@ -94,13 +110,13 @@ def main():
         # Full pipeline
         # Step 1: Resolve dest IDs
         print("--- Step 1: Resolving Booking.com destination IDs ---")
-        villages = all_villages()
+        villages = [v for vs in resorts.values() for v in vs]
         dest_ids = asyncio.run(resolve_dest_ids(villages))
         print(f"Resolved {len(dest_ids)}/{len(villages)} villages.\n")
 
         # Step 2: Scrape
         print("--- Step 2: Scraping Booking.com ---")
-        properties = asyncio.run(scrape_all(dest_ids))
+        properties = asyncio.run(scrape_all(dest_ids, resorts=resorts))
         save_json(properties, config.RAW_RESULTS_CACHE)
 
         if args.scrape_only:
