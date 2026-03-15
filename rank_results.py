@@ -93,6 +93,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
     rejected_budget = 0
     rejected_multi_unit = 0
     rejected_bedrooms = 0
+    rejected_rating = 0
 
     for prop in properties:
         # Filter: single accommodation unit only (no multi-apartment setups)
@@ -117,11 +118,17 @@ def filter_properties(properties: list[dict]) -> list[dict]:
                 rejected_budget += 1
                 continue
 
-            # Calculate per-person-per-night
+            # Calculate per-person (total stay)
             effective_guests = min(capacity, config.GROUP_SIZE) if capacity else config.GROUP_SIZE
-            prop["price_per_person_per_night"] = round(price / effective_guests / num_nights, 2)
+            prop["price_per_person"] = round(price / effective_guests, 2)
         else:
-            prop["price_per_person_per_night"] = None
+            prop["price_per_person"] = None
+
+        # Filter: minimum rating (keep properties with no rating)
+        rating = prop.get("rating")
+        if rating is not None and rating < config.MIN_RATING:
+            rejected_rating += 1
+            continue
 
         # Filter: enough bedrooms so no one sleeps in the living room
         bedroom_count = parse_bedroom_count(prop)
@@ -137,6 +144,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
     print(f"  Rejected (multiple units): {rejected_multi_unit}")
     print(f"  Rejected (too far from lift): {rejected_distance}")
     print(f"  Rejected (over budget): {rejected_budget}")
+    print(f"  Rejected (rating below {config.MIN_RATING}): {rejected_rating}")
     print(f"  Rejected (too few bedrooms): {rejected_bedrooms}")
     print(f"  Remaining: {len(filtered)} properties")
 
@@ -154,8 +162,8 @@ def build_ai_prompt(properties: list[dict]) -> str:
             f"- Resort: {p.get('resort', 'Unknown')}",
             f"- Price: {p.get('price_text', 'Unknown')} ({config.CURRENCY} total for stay)",
         ]
-        if p.get("price_per_person_per_night"):
-            lines.append(f"- Price per person per night: {config.CURRENCY} {p['price_per_person_per_night']}")
+        if p.get("price_per_person"):
+            lines.append(f"- Price per person (total stay): {config.CURRENCY} {p['price_per_person']}")
         if p.get("rating"):
             lines.append(f"- Rating: {p['rating']}/10 ({p.get('review_count', '?')} reviews)")
         if p.get("nearest_lift_name"):
@@ -252,15 +260,15 @@ def fallback_ranking(properties: list[dict]) -> str:
         "",
         "*AI ranking unavailable — sorted by lift proximity and price.*",
         "",
-        "| # | Name | Resort | Price (CHF) | CHF/p/night | Lift | Walk (min) | Rating | Link |",
-        "|---|------|--------|-------------|-------------|------|------------|--------|------|",
+        "| # | Name | Resort | Price (CHF) | CHF/person | Lift | Walk (min) | Rating | Link |",
+        "|---|------|--------|-------------|------------|------|------------|--------|------|",
     ]
 
     for i, p in enumerate(sorted_props[:20], 1):
         name = p.get("name", "?")[:40]
         resort = p.get("resort", "?")[:20]
         price = p.get("price_text", "?")
-        ppn = p.get("price_per_person_per_night", "?")
+        ppn = p.get("price_per_person", "?")
         lift = (p.get("nearest_lift_name") or "?")[:25]
         walk = p.get("nearest_lift_walk_minutes", "?")
         rating = p.get("rating", "?")
@@ -308,7 +316,7 @@ def write_results(
         "resort",
         "price",
         "price_text",
-        "price_per_person_per_night",
+        "price_per_person",
         "rating",
         "review_count",
         "parsed_capacity",
