@@ -33,6 +33,8 @@ jobs:
   search:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -118,3 +120,15 @@ jobs:
           echo "**Artifacts:** [results.md / results.csv](${ARTIFACT_URL})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cat results.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Commit and push results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f results.md results.csv dest_ids.json raw_results.json enriched_results.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update ski search results $(date -u +%Y-%m-%d)"
+            git push
+          fi
