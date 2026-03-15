@@ -91,15 +91,14 @@ jobs:
           INPUT_SKIP_SCRAPE: ${{ github.event.inputs.skip_scrape }}
           INPUT_RESORT: ${{ github.event.inputs.resort }}
         run: |
-          RESORT_ARG=""
-          if [ -n "$INPUT_RESORT" ]; then
-            RESORT_ARG="--resort $INPUT_RESORT"
-          fi
+          CMD=(python ski_search.py)
           if [ "$INPUT_SKIP_SCRAPE" = "true" ] && [ -f raw_results.json ]; then
-            python ski_search.py --from-cache raw_results.json $RESORT_ARG
-          else
-            python ski_search.py $RESORT_ARG
+            CMD+=(--from-cache raw_results.json)
           fi
+          if [ -n "$INPUT_RESORT" ]; then
+            CMD+=(--resort "$INPUT_RESORT")
+          fi
+          "${CMD[@]}"
 
       - name: Commit results and caches
         run: |
