@@ -30,8 +30,7 @@ def print_banner():
     print(f"  Budget:           max {config.MAX_PRICE_PER_PERSON_CHF} {config.CURRENCY}/person")
     print(f"  Sauna required:   {config.REQUIRE_SAUNA}")
     print(f"  Max walk to lift: {config.MAX_WALK_TO_LIFT_MINUTES} min")
-    total_villages = sum(len(v) for v in config.RESORTS.values())
-    print(f"  Resorts:          {len(config.RESORTS)} ({total_villages} villages)")
+    print(f"  Resorts:          {len(config.RESORTS)} ({len(all_villages())} villages)")
     print(f"  AI model:         {config.OPENAI_MODEL}")
     print(f"  AI key:           {'set' if config.OPENAI_API_KEY else 'NOT SET (fallback ranking)'}")
     print(f"  Output:           {config.OUTPUT_FILE}, {config.OUTPUT_CSV}")
@@ -93,12 +92,16 @@ def main():
         # Skip to filtering + ranking
         print(f"Loading enriched results from {args.from_enriched}...")
         properties = load_json(args.from_enriched)
+        if args.resort:
+            properties = [p for p in properties if p.get("resort") in resorts]
         print(f"Loaded {len(properties)} enriched properties.")
 
     elif args.from_cache:
         # Skip scraping, redo geo + ranking
         print(f"Loading raw results from {args.from_cache}...")
         properties = load_json(args.from_cache)
+        if args.resort:
+            properties = [p for p in properties if p.get("resort") in resorts]
         print(f"Loaded {len(properties)} raw properties.")
 
         # Step 3+4: Geocode + find lifts

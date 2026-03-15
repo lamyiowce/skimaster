@@ -273,18 +273,13 @@ async def scrape_resort(
     return properties
 
 
-async def scrape_all(dest_ids: dict, resorts: dict | None = None) -> list[dict]:
+async def scrape_all(dest_ids: dict, resorts: dict) -> list[dict]:
     """Scrape all resort groups and return combined property list.
 
     For each resort group the full list of configured villages is searched.
     Properties from all villages are tagged with the parent resort group name.
     Duplicates (same URL appearing in two village searches) are removed.
-
-    Pass *resorts* to override config.RESORTS (e.g. for a test run with a
-    single resort group).
     """
-    if resorts is None:
-        resorts = config.RESORTS
     all_properties = []
 
     async with async_playwright() as p:

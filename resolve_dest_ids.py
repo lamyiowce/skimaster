@@ -68,7 +68,6 @@ async def resolve_single_dest_id(resort: str, page) -> dict | None:
         if dest_id:
             print(f"  ✓ {resort}: dest_id={dest_id}, dest_type={dest_type or 'city'}")
             return {
-                "resort": resort,
                 "dest_id": dest_id,
                 "dest_type": dest_type or "city",
             }
