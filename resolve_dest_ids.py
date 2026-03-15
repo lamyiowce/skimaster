@@ -136,7 +136,14 @@ async def resolve_dest_ids(villages: list[str]) -> dict:
 
         save_cache(cache)
 
-    return {v: cache[v] for v in villages if v in cache}
+    result = {v: cache[v] for v in villages if v in cache}
+    n_cache = len(villages) - len(to_resolve)
+    n_new = len(result) - n_cache
+    n_failed = len(villages) - len(result)
+    print(f"  dest_id summary: {len(result)}/{len(villages)} resolved "
+          f"({n_cache} from cache, {n_new} new"
+          + (f", {n_failed} failed" if n_failed else "") + ")")
+    return result
 
 
 if __name__ == "__main__":

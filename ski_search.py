@@ -190,9 +190,18 @@ def main():
     print("\n--- Writing Results ---")
     write_results(ai_ranking, filtered, config.OUTPUT_FILE, config.OUTPUT_CSV)
 
-    print(f"\nDone! {len(filtered)} properties ranked.")
+    n_total = len(properties)
+    n_with_lift = sum(1 for p in filtered if p.get("nearest_lift_name"))
+    n_no_price  = sum(1 for p in filtered if p.get("price") is None)
+    print(f"\n{'=' * 60}")
+    print(f"  Pipeline complete")
+    print(f"  Properties enriched : {n_total}")
+    print(f"  Passed filters      : {len(filtered)}")
+    print(f"    with lift data    : {n_with_lift}")
+    print(f"    no price listed   : {n_no_price}")
     print(f"  Report: {config.OUTPUT_FILE}")
-    print(f"  Data:   {config.OUTPUT_CSV}")
+    print(f"  Data  : {config.OUTPUT_CSV}")
+    print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

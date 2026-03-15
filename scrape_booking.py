@@ -295,10 +295,12 @@ async def scrape_all(dest_ids: dict, resorts: dict, debug: bool = False) -> list
             seen_urls: set[str] = set()
             group_properties = []
 
+            n_skipped = 0
             for village in villages:
                 if village not in dest_ids:
                     if debug:
                         print(f"  Skipping {village} — no dest_id resolved")
+                    n_skipped += 1
                     continue
 
                 props = await scrape_resort(resort_group, dest_ids[village], context)
@@ -311,14 +313,16 @@ async def scrape_all(dest_ids: dict, resorts: dict, debug: bool = False) -> list
                     if url not in seen_urls:
                         seen_urls.add(url)
                         new_props.append(prop)
-                if debug and len(props) != len(new_props):
-                    print(f"    Removed {len(props) - len(new_props)} duplicate(s) from {village}")
+
+                n_dupes = len(props) - len(new_props)
+                dupe_note = f", {n_dupes} duplicate(s) removed" if n_dupes else ""
+                print(f"  {village}: {len(new_props)} properties{dupe_note}")
 
                 group_properties.extend(new_props)
                 await asyncio.sleep(3)  # Polite delay between village searches
 
-            if debug:
-                print(f"  → {len(group_properties)} unique properties for {resort_group}")
+            skip_note = f", {n_skipped} village(s) skipped (no dest_id)" if n_skipped else ""
+            print(f"  → {resort_group}: {len(group_properties)} unique properties total{skip_note}")
             all_properties.extend(group_properties)
 
         await browser.close()
