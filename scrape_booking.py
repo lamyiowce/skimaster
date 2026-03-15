@@ -306,9 +306,12 @@ async def scrape_all(dest_ids: dict, resorts: dict | None = None) -> list[dict]:
 
                 # Deduplicate: a property can appear in multiple village searches
                 # if the Booking.com destination areas overlap.
-                new_props = [p for p in props if p.get("url") not in seen_urls]
-                for p in new_props:
-                    seen_urls.add(p.get("url", ""))
+                new_props = []
+                for prop in props:
+                    url = prop.get("url", "")
+                    if url not in seen_urls:
+                        seen_urls.add(url)
+                        new_props.append(prop)
                 if len(props) != len(new_props):
                     print(f"    Removed {len(props) - len(new_props)} duplicate(s) from {village}")
 

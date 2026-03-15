@@ -96,39 +96,48 @@ def save_cache(cache: dict):
         json.dump(cache, f, indent=2, ensure_ascii=False)
 
 
-def all_villages() -> list[str]:
-    """Return a flat list of every village search term defined in config.RESORTS."""
+def all_villages(resorts: dict | None = None) -> list[str]:
+    """Return a flat list of every village search term for the given resorts dict.
+
+    Defaults to config.RESORTS when no dict is provided.
+    """
+    if resorts is None:
+        resorts = config.RESORTS
     villages = []
-    for village_list in config.RESORTS.values():
+    for village_list in resorts.values():
         villages.extend(village_list)
     return villages
 
 
 async def resolve_dest_ids(villages: list[str]) -> dict:
-    """Resolve dest_ids for all villages, using cache where available."""
+    """Resolve dest_ids for the given villages, using cache where available.
+
+    Returns a dict keyed by village name containing only the requested villages
+    (not the full cache).
+    """
     cache = load_cache()
     to_resolve = [v for v in villages if v not in cache]
 
     if not to_resolve:
         print(f"All {len(villages)} village dest_ids loaded from cache.")
-        return cache
+    else:
+        print(f"Resolving {len(to_resolve)} village dest_ids (cached: {len(villages) - len(to_resolve)})...")
 
-    print(f"Resolving {len(to_resolve)} village dest_ids (cached: {len(villages) - len(to_resolve)})...")
+        async with async_playwright() as p:
+            browser, context = await create_browser_context(p)
+            page = await context.new_page()
 
-    async with async_playwright() as p:
-        browser, context = await create_browser_context(p)
-        page = await context.new_page()
+            for village in to_resolve:
+                result = await resolve_single_dest_id(village, page)
+                if result:
+                    cache[village] = result
+                await asyncio.sleep(2)  # Polite delay between lookups
 
-        for village in to_resolve:
-            result = await resolve_single_dest_id(village, page)
-            if result:
-                cache[village] = result
-            await asyncio.sleep(2)  # Polite delay between lookups
+            await browser.close()
 
-        await browser.close()
+        save_cache(cache)
 
-    save_cache(cache)
-    return cache
+    return {v: cache[v] for v in villages if v in cache}
 
 
 if __name__ == "__main__":

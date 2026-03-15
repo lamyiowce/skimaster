@@ -110,7 +110,7 @@ def main():
         # Full pipeline
         # Step 1: Resolve dest IDs
         print("--- Step 1: Resolving Booking.com destination IDs ---")
-        villages = [v for vs in resorts.values() for v in vs]
+        villages = all_villages(resorts)
         dest_ids = asyncio.run(resolve_dest_ids(villages))
         print(f"Resolved {len(dest_ids)}/{len(villages)} villages.\n")
 
