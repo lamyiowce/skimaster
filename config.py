@@ -8,8 +8,8 @@ MIN_BEDROOMS = 4          # Enough bedrooms so no one sleeps in the living room
 MAX_ACCOMMODATION_UNITS = 1  # Everyone must stay in the same apartment/chalet
 
 # Travel dates
-CHECK_IN = "2026-03-21"
-CHECK_OUT = "2026-03-28"
+CHECK_IN = "2027-01-02"
+CHECK_OUT = "2027-01-09"
 
 # Requirements
 REQUIRE_SAUNA = True
