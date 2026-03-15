@@ -118,14 +118,23 @@ def main():
             for name in config.RESORTS:
                 print(f"  {name}")
             sys.exit(1)
-        print(f"Test run: limiting to {list(resorts.keys())}\n")
+        print("=" * 60)
+        print("  [DRY RUN]")
+        for resort_name, villages in resorts.items():
+            print(f"  Resort : {resort_name}")
+            for v in villages:
+                print(f"    village: {v}")
+        print("=" * 60)
+        print()
 
     if args.from_enriched:
         # Skip to filtering + ranking
         print(f"Loading enriched results from {args.from_enriched}...")
         properties = load_json(args.from_enriched, expected_resorts=resorts)
         if args.resort:
+            before = len(properties)
             properties = [p for p in properties if p.get("resort") in resorts]
+            print(f"  [DRY RUN] Kept {len(properties)}/{before} properties for {list(resorts.keys())}")
         print(f"Loaded {len(properties)} enriched properties.")
 
     elif args.from_cache:
@@ -133,7 +142,9 @@ def main():
         print(f"Loading raw results from {args.from_cache}...")
         properties = load_json(args.from_cache, expected_resorts=resorts)
         if args.resort:
+            before = len(properties)
             properties = [p for p in properties if p.get("resort") in resorts]
+            print(f"  [DRY RUN] Kept {len(properties)}/{before} properties for {list(resorts.keys())}")
         print(f"Loaded {len(properties)} raw properties.")
 
         # Step 3+4: Geocode + find lifts
