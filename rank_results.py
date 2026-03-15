@@ -175,7 +175,7 @@ def rank_with_ai(properties: list[dict]) -> str:
 
         response = client.chat.completions.create(
             model=config.OPENAI_MODEL,
-            max_tokens=4096,
+            max_completion_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
 
