@@ -56,7 +56,7 @@ def parse_capacity(prop: dict) -> int | None:
         r"capacity[:\s]+(\d+)",
         r"up\s+to\s+(\d+)",
         r"(\d+)\s*person",
-        r"(\d+)\s*bed\s*(?:room|s)",
+        r"(\d+)\s*beds\b",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
