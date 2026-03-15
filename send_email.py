@@ -1,10 +1,8 @@
-"""Send the ski search results summary by email via SMTP."""
+"""Send the ski search results summary by email via Resend."""
 
 import os
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
+import httpx
 import markdown as md
 
 
@@ -200,14 +198,14 @@ _META_ITEM = """\
     </div>"""
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── HTML builder ──────────────────────────────────────────────────────────────
 
 def _meta_item(label: str, value: str) -> str:
     return _META_ITEM.format(label=label, value=value)
 
 
 def _extract_meta(markdown_text: str) -> dict:
-    """Pull the key-value pairs from the metadata block at the top of results.md."""
+    """Pull key-value pairs from the metadata block at the top of results.md."""
     meta = {}
     for line in markdown_text.splitlines():
         for key, pattern in [
@@ -216,7 +214,6 @@ def _extract_meta(markdown_text: str) -> dict:
             ("budget",   "**Budget:**"),
             ("walk",     "**Max walk to lift:**"),
             ("analyzed", "**Properties analyzed:**"),
-            ("searched", "**Search date:**"),
         ]:
             if pattern in line:
                 meta[key] = line.split(pattern, 1)[1].strip()
@@ -224,9 +221,8 @@ def _extract_meta(markdown_text: str) -> dict:
 
 
 def _strip_meta_block(markdown_text: str) -> str:
-    """Remove the top metadata block (up to and including the first ---) from the markdown."""
+    """Remove the top metadata block (up to and including the first ---)."""
     lines = markdown_text.splitlines()
-    # Find the first "---" separator
     for i, line in enumerate(lines):
         if line.strip() == "---":
             return "\n".join(lines[i + 1:]).lstrip()
@@ -236,22 +232,14 @@ def _strip_meta_block(markdown_text: str) -> str:
 def _strip_footer(markdown_text: str) -> str:
     """Remove the trailing --- and footer line."""
     lines = markdown_text.splitlines()
-    # Find the last "---" separator
     for i in range(len(lines) - 1, -1, -1):
         if lines[i].strip() == "---":
             return "\n".join(lines[:i]).rstrip()
     return markdown_text
 
 
-def _markdown_to_html(text: str) -> str:
-    return md.markdown(
-        text,
-        extensions=["tables", "nl2br"],
-        output_format="html",
-    )
-
-
 def _build_html(markdown_text: str) -> str:
+    import re
     meta = _extract_meta(markdown_text)
 
     meta_items = "\n".join([
@@ -262,12 +250,14 @@ def _build_html(markdown_text: str) -> str:
         _meta_item("Properties checked", meta.get("analyzed", "—")),
     ])
 
-    # Strip metadata block and footer from the body before rendering
     body_md = _strip_footer(_strip_meta_block(markdown_text))
-    body_html = _markdown_to_html(body_md)
+    body_html = md.markdown(
+        body_md,
+        extensions=["tables", "nl2br"],
+        output_format="html",
+    )
 
-    import re as _re
-    resorts_match = _re.search(r"(\d+) resorts searched", markdown_text)
+    resorts_match = re.search(r"(\d+) resorts searched", markdown_text)
     resorts_searched = resorts_match.group(1) if resorts_match else "?"
 
     return _HTML_WRAPPER.format(
@@ -280,34 +270,17 @@ def _build_html(markdown_text: str) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def send_summary_email(results_md_path: str) -> None:
-    """Send the contents of results_md_path to EMAIL_TO via SMTP.
+    """Send results_md_path to EMAIL_TO via the Resend API.
 
     Required environment variables:
-        EMAIL_TO        Recipient address (or comma-separated list)
-        SMTP_HOST       SMTP server hostname (e.g. smtp.gmail.com)
-        SMTP_USER       SMTP login / sender address
-        SMTP_PASSWORD   SMTP password or app-password
-
-    Optional:
-        SMTP_PORT       Defaults to 587 (STARTTLS)
+        RESEND_API_KEY  API key from resend.com
+        EMAIL_TO        Recipient address
     """
+    api_key = os.environ.get("RESEND_API_KEY", "")
     recipient = os.environ.get("EMAIL_TO", "")
-    smtp_host = os.environ.get("SMTP_HOST", "")
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_password = os.environ.get("SMTP_PASSWORD", "")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
 
-    if not all([recipient, smtp_host, smtp_user, smtp_password]):
-        missing = [
-            name
-            for name, val in {
-                "EMAIL_TO": recipient,
-                "SMTP_HOST": smtp_host,
-                "SMTP_USER": smtp_user,
-                "SMTP_PASSWORD": smtp_password,
-            }.items()
-            if not val
-        ]
+    if not api_key or not recipient:
+        missing = [n for n, v in {"RESEND_API_KEY": api_key, "EMAIL_TO": recipient}.items() if not v]
         print(f"Email not sent — missing env vars: {', '.join(missing)}")
         return
 
@@ -320,17 +293,18 @@ def send_summary_email(results_md_path: str) -> None:
 
     html_body = _build_html(markdown_text)
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "⛷ SkiMaster — Ski Accommodation Search Results"
-    msg["From"] = smtp_user
-    msg["To"] = recipient
-    msg.attach(MIMEText(markdown_text, "plain", "utf-8"))
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
-
-    print(f"Sending results email to {recipient} via {smtp_host}:{smtp_port}...")
-    with smtplib.SMTP(smtp_host, smtp_port) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.login(smtp_user, smtp_password)
-        smtp.send_message(msg)
-    print("Email sent successfully.")
+    print(f"Sending results email to {recipient} via Resend...")
+    response = httpx.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "from": "SkiMaster <onboarding@resend.dev>",
+            "to": [recipient],
+            "subject": "⛷ SkiMaster — Ski Accommodation Search Results",
+            "html": html_body,
+            "text": markdown_text,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    print(f"Email sent successfully (id={response.json().get('id')}).")

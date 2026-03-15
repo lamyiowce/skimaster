@@ -211,12 +211,9 @@ RESORTS: dict[str, list[str]] = {
 OUTPUT_FILE = "results.md"
 OUTPUT_CSV = "results.csv"
 
-# Email summary (all read from environment variables)
-EMAIL_TO = os.environ.get("EMAIL_TO", "")          # Recipient(s), comma-separated
-SMTP_HOST = os.environ.get("SMTP_HOST", "")        # e.g. smtp.gmail.com
-SMTP_USER = os.environ.get("SMTP_USER", "")        # Sender / login address
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")  # Password or app-password
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+# Email summary (read from environment variables)
+EMAIL_TO = os.environ.get("EMAIL_TO", "")          # Recipient address
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 
 # OpenAI API
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
