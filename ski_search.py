@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 
 import config
 from resolve_dest_ids import resolve_dest_ids, all_villages
@@ -128,6 +129,9 @@ def main():
         print("=" * 60)
         print()
 
+    pipeline_start = time.perf_counter()
+    timings = {}  # step name → seconds
+
     if args.from_enriched:
         # Skip to filtering + ranking
         print(f"Loading enriched results from {args.from_enriched}...")
@@ -150,20 +154,27 @@ def main():
 
         # Step 3+4: Geocode + find lifts
         print("\n--- Step 3+4: Geocoding & Lift Lookup ---")
+        t0 = time.perf_counter()
         properties = asyncio.run(enrich_all(properties))
+        timings["geocode+lifts"] = time.perf_counter() - t0
         save_json(properties, config.ENRICHED_RESULTS_CACHE, resorts=resorts)
 
     else:
         # Full pipeline
         # Step 1: Resolve dest IDs
         print("--- Step 1: Resolving Booking.com destination IDs ---")
+        t0 = time.perf_counter()
         villages = all_villages(resorts)
         dest_ids = asyncio.run(resolve_dest_ids(villages))
-        print(f"Resolved {len(dest_ids)}/{len(villages)} villages.\n")
+        timings["resolve_ids"] = time.perf_counter() - t0
+        print(f"Resolved {len(dest_ids)}/{len(villages)} villages. [{timings['resolve_ids']:.1f}s]\n")
 
         # Step 2: Scrape
         print("--- Step 2: Scraping Booking.com ---")
+        t0 = time.perf_counter()
         properties = asyncio.run(scrape_all(dest_ids, resorts=resorts, debug=bool(args.resort)))
+        timings["scrape"] = time.perf_counter() - t0
+        print(f"  [scrape] {timings['scrape']:.1f}s")
         save_json(properties, config.RAW_RESULTS_CACHE, resorts=resorts)
 
         if args.scrape_only:
@@ -172,12 +183,16 @@ def main():
 
         # Step 3+4: Geocode + find lifts
         print("\n--- Step 3+4: Geocoding & Lift Lookup ---")
+        t0 = time.perf_counter()
         properties = asyncio.run(enrich_all(properties))
+        timings["geocode+lifts"] = time.perf_counter() - t0
         save_json(properties, config.ENRICHED_RESULTS_CACHE, resorts=resorts)
 
     # Step 5: Filter
     print("\n--- Step 5: Filtering ---")
+    t0 = time.perf_counter()
     filtered = filter_properties(properties)
+    timings["filter"] = time.perf_counter() - t0
 
     if not filtered:
         print("\nNo properties passed the filters. Try relaxing constraints.")
@@ -188,12 +203,15 @@ def main():
 
     # Step 6: AI Ranking
     print("\n--- Step 6: AI Ranking ---")
+    t0 = time.perf_counter()
     ai_ranking = rank_with_ai(filtered)
+    timings["ai_ranking"] = time.perf_counter() - t0
 
     # Write outputs
     print("\n--- Writing Results ---")
     write_results(ai_ranking, filtered, config.OUTPUT_FILE, config.OUTPUT_CSV)
 
+    total_time = time.perf_counter() - pipeline_start
     n_total = len(properties)
     n_with_lift = sum(1 for p in filtered if p.get("nearest_lift_name"))
     n_no_price  = sum(1 for p in filtered if p.get("price") is None)
@@ -205,6 +223,11 @@ def main():
     print(f"    no price listed   : {n_no_price}")
     print(f"  Report: {config.OUTPUT_FILE}")
     print(f"  Data  : {config.OUTPUT_CSV}")
+    print(f"  ──────────────────────────────────")
+    print(f"  Timings:")
+    for step, secs in timings.items():
+        print(f"    {step:20s} {secs:7.1f}s")
+    print(f"    {'TOTAL':20s} {total_time:7.1f}s")
     print(f"{'=' * 60}")
 
     # Send email summary if SMTP is configured

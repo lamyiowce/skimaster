@@ -15,6 +15,18 @@ from browser_utils import create_browser_context, dismiss_popups
 import config
 
 
+def quick_price_check(price: float | None) -> bool:
+    """Fast pre-filter: reject properties obviously over budget before enrichment.
+
+    Uses price_per_person × (group_size + 5) as a generous ceiling so we don't
+    waste time geocoding / querying lifts for places that can never pass.
+    """
+    if price is None:
+        return True  # keep unknowns — they might be affordable
+    max_total = config.MAX_PRICE_PER_PERSON_CHF * (config.GROUP_SIZE + 5)
+    return price <= max_total
+
+
 def build_search_url(dest_id: str, dest_type: str) -> str:
     """Build a Booking.com search URL with all required filters."""
     params = {
@@ -330,4 +342,15 @@ async def scrape_all(dest_ids: dict, resorts: dict, debug: bool = False) -> list
         await browser.close()
 
     print(f"\nTotal properties scraped: {len(all_properties)}")
+
+    # Quick price pre-filter: drop obviously over-budget properties before
+    # the expensive geocoding + lift lookup steps.
+    before = len(all_properties)
+    all_properties = [p for p in all_properties if quick_price_check(p.get("price"))]
+    n_dropped = before - len(all_properties)
+    if n_dropped:
+        ceiling = config.MAX_PRICE_PER_PERSON_CHF * (config.GROUP_SIZE + 5)
+        print(f"  Price pre-filter: dropped {n_dropped} properties over {ceiling} {config.CURRENCY}")
+    print(f"  Properties after price pre-filter: {len(all_properties)}")
+
     return all_properties
