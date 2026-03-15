@@ -18,6 +18,7 @@ from resolve_dest_ids import resolve_dest_ids, all_villages
 from scrape_booking import scrape_all
 from geo_lifts import enrich_all
 from rank_results import filter_properties, rank_with_ai, write_results
+from send_email import send_summary_email
 
 
 def print_banner():
@@ -202,6 +203,9 @@ def main():
     print(f"  Report: {config.OUTPUT_FILE}")
     print(f"  Data  : {config.OUTPUT_CSV}")
     print(f"{'=' * 60}")
+
+    # Send email summary if SMTP is configured
+    send_summary_email(config.OUTPUT_FILE)
 
 
 if __name__ == "__main__":

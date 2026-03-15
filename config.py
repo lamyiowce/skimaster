@@ -211,6 +211,10 @@ RESORTS: dict[str, list[str]] = {
 OUTPUT_FILE = "results.md"
 OUTPUT_CSV = "results.csv"
 
+# Email summary (read from environment variables)
+EMAIL_TO = os.environ.get("EMAIL_TO", "")          # Recipient address
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+
 # OpenAI API
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = "gpt-5.4"
