@@ -88,6 +88,10 @@ jobs:
       - name: Run ski search
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           INPUT_SKIP_SCRAPE: ${{ github.event.inputs.skip_scrape }}
           INPUT_RESORT: ${{ github.event.inputs.resort }}
         run: |
