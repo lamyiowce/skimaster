@@ -26,7 +26,9 @@ def build_search_url(dest_id: str, dest_type: str) -> str:
         "no_rooms": 1,
         "selected_currency": config.CURRENCY,
         # Property types: 201=apartment, 220=chalet, 213=holiday home
+        # min_bedroom enforces enough rooms for the full group (no living-room sleeping)
         "nflt": "ht_id=201;ht_id=220;ht_id=213"
+        + f";min_bedroom={config.MIN_BEDROOMS}"
         + (";hotelfacility=80" if config.REQUIRE_SAUNA else ""),
     }
     return "https://www.booking.com/searchresults.html?" + urlencode(params)
