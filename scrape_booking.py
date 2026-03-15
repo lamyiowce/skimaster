@@ -139,6 +139,16 @@ async def extract_property_cards(page) -> list[dict]:
             # Full card text for capacity parsing later
             prop["card_text"] = await card.text_content() or ""
 
+            # Free cancellation badge
+            cancel_el = card.locator("[data-testid='cancellation-label']")
+            if await cancel_el.count() > 0:
+                cancel_text = (await cancel_el.text_content() or "").lower()
+                prop["free_cancellation"] = "free cancellation" in cancel_text
+            else:
+                # Fallback: scan full card text
+                card_lower = prop["card_text"].lower()
+                prop["free_cancellation"] = "free cancellation" in card_lower
+
             # Placeholders for detail page data
             prop["street_address"] = ""
             prop["latitude"] = None

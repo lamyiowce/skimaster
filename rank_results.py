@@ -208,6 +208,7 @@ def build_ai_prompt(properties: list[dict]) -> str:
             lines.append(f"- Bedrooms: {p['bedroom_count']}")
         if p.get("parsed_capacity"):
             lines.append(f"- Capacity: sleeps {p['parsed_capacity']}")
+        lines.append(f"- Free cancellation: {'YES' if p.get('free_cancellation') else 'NO'}")
         if p.get("street_address"):
             lines.append(f"- Address: {p['street_address']}")
         lines.append(f"- URL: {p.get('url', 'N/A')}")
@@ -224,6 +225,7 @@ def build_ai_prompt(properties: list[dict]) -> str:
 - Budget: max {config.MAX_PRICE_PER_PERSON_CHF} CHF per person for the full stay
   - Budget scales with capacity: a property sleeping N pays max N × {config.MAX_PRICE_PER_PERSON_CHF} CHF (capped at {config.GROUP_SIZE} × {config.MAX_PRICE_PER_PERSON_CHF} = {config.GROUP_SIZE * config.MAX_PRICE_PER_PERSON_CHF} CHF)
 - Currency: {config.CURRENCY}
+- **Free cancellation is extremely important** — strongly prefer properties that offer free cancellation
 
 ## Properties to rank
 
@@ -238,9 +240,10 @@ For each property, provide:
 2. **Price per person** in CHF (total for the stay, not per night)
 3. **Nearest lift** — name, type, and walk time
 4. **Rating** and review count
-5. **Booking link**
-6. **Red flags** — any concerns (too expensive, far from lifts, low rating, small capacity, too few bedrooms, multiple separate units, etc.)
-7. **Why it's ranked here** — brief justification
+5. **Free cancellation** — yes or no
+6. **Booking link**
+7. **Red flags** — any concerns (too expensive, far from lifts, low rating, small capacity, too few bedrooms, multiple separate units, no free cancellation, etc.)
+8. **Why it's ranked here** — brief justification
 
 Format as a numbered Markdown list. After the top 5, add a brief summary of the overall search quality and any general observations."""
 
@@ -276,13 +279,15 @@ def rank_with_ai(properties: list[dict]) -> str:
 
 def fallback_ranking(properties: list[dict]) -> str:
     """Generate a basic Markdown table sorted by lift distance and price."""
-    # Sort: properties with lift data first (by distance), then unknowns, then by price
+    # Sort tuple: (no_free_cancel, no_lift_data, walk_minutes, price)
+    # — free cancellation first, then properties with known lift data, then by distance, then price
     def sort_key(p):
+        no_free_cancel = 0 if p.get("free_cancellation") else 1
         walk = p.get("nearest_lift_walk_minutes")
         price = p.get("price") or float("inf")
         if walk is not None:
-            return (0, walk, price)
-        return (1, 0, price)
+            return (no_free_cancel, 0, walk, price)
+        return (no_free_cancel, 1, 0, price)
 
     sorted_props = sorted(properties, key=sort_key)
 
@@ -291,8 +296,8 @@ def fallback_ranking(properties: list[dict]) -> str:
         "",
         "*AI ranking unavailable — sorted by lift proximity and price.*",
         "",
-        "| # | Name | Resort | Price (CHF) | CHF/person | Lift | Walk (min) | Rating | Link |",
-        "|---|------|--------|-------------|------------|------|------------|--------|------|",
+        "| # | Name | Resort | Price (CHF) | CHF/person | Lift | Walk (min) | Rating | Free cancel | Link |",
+        "|---|------|--------|-------------|------------|------|------------|--------|-------------|------|",
     ]
 
     for i, p in enumerate(sorted_props[:20], 1):
@@ -303,10 +308,11 @@ def fallback_ranking(properties: list[dict]) -> str:
         lift = (p.get("nearest_lift_name") or "?")[:25]
         walk = p.get("nearest_lift_walk_minutes", "?")
         rating = p.get("rating", "?")
+        free_cancel = "YES" if p.get("free_cancellation") else "NO"
         url = p.get("url", "")
         link = f"[Book]({url})" if url else "N/A"
 
-        lines.append(f"| {i} | {name} | {resort} | {price} | {ppn} | {lift} | {walk} | {rating} | {link} |")
+        lines.append(f"| {i} | {name} | {resort} | {price} | {ppn} | {lift} | {walk} | {rating} | {free_cancel} | {link} |")
 
     return "\n".join(lines)
 
@@ -356,6 +362,7 @@ def write_results(
         "nearest_lift_type",
         "nearest_lift_distance_m",
         "nearest_lift_walk_minutes",
+        "free_cancellation",
         "street_address",
         "latitude",
         "longitude",
