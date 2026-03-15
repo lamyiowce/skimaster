@@ -13,6 +13,7 @@ CHECK_OUT = "2027-01-09"
 
 # Requirements
 REQUIRE_SAUNA = True
+MIN_RATING = 8.0              # Minimum Booking.com review score (out of 10); properties with no rating are kept
 MAX_WALK_TO_LIFT_MINUTES = 5
 MAX_PRICE_PER_PERSON_CHF = 500
 CURRENCY = "CHF"

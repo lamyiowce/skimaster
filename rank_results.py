@@ -93,6 +93,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
     rejected_budget = 0
     rejected_multi_unit = 0
     rejected_bedrooms = 0
+    rejected_rating = 0
 
     for prop in properties:
         # Filter: single accommodation unit only (no multi-apartment setups)
@@ -123,6 +124,12 @@ def filter_properties(properties: list[dict]) -> list[dict]:
         else:
             prop["price_per_person_per_night"] = None
 
+        # Filter: minimum rating (keep properties with no rating)
+        rating = prop.get("rating")
+        if rating is not None and rating < config.MIN_RATING:
+            rejected_rating += 1
+            continue
+
         # Filter: enough bedrooms so no one sleeps in the living room
         bedroom_count = parse_bedroom_count(prop)
         prop["bedroom_count"] = bedroom_count
@@ -137,6 +144,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
     print(f"  Rejected (multiple units): {rejected_multi_unit}")
     print(f"  Rejected (too far from lift): {rejected_distance}")
     print(f"  Rejected (over budget): {rejected_budget}")
+    print(f"  Rejected (rating below {config.MIN_RATING}): {rejected_rating}")
     print(f"  Rejected (too few bedrooms): {rejected_bedrooms}")
     print(f"  Remaining: {len(filtered)} properties")
 
