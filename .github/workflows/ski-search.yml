@@ -20,6 +20,10 @@ on:
         required: false
         type: boolean
         default: false
+      resort:
+        description: "Filter to a single resort (substring match, e.g. 'Les Arcs')"
+        required: false
+        default: ""
 
   # Uncomment for weekly schedule:
   # schedule:
@@ -85,11 +89,16 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           INPUT_SKIP_SCRAPE: ${{ github.event.inputs.skip_scrape }}
+          INPUT_RESORT: ${{ github.event.inputs.resort }}
         run: |
+          RESORT_ARG=""
+          if [ -n "$INPUT_RESORT" ]; then
+            RESORT_ARG="--resort $INPUT_RESORT"
+          fi
           if [ "$INPUT_SKIP_SCRAPE" = "true" ] && [ -f raw_results.json ]; then
-            python ski_search.py --from-cache raw_results.json
+            python ski_search.py --from-cache raw_results.json $RESORT_ARG
           else
-            python ski_search.py
+            python ski_search.py $RESORT_ARG
           fi
 
       - name: Commit results and caches
