@@ -17,7 +17,7 @@ import config
 from resolve_dest_ids import resolve_dest_ids, all_villages
 from scrape_booking import scrape_all
 from geo_lifts import enrich_all
-from rank_results import filter_properties, rank_with_ai, write_results
+from rank_results import filter_properties, deduplicate_properties, rank_with_ai, write_results
 from send_email import send_summary_email
 
 
@@ -182,6 +182,9 @@ def main():
     if not filtered:
         print("\nNo properties passed the filters. Try relaxing constraints.")
         sys.exit(1)
+
+    # Step 5b: Deduplicate (after filtering, before ranking — keeps best version)
+    filtered = deduplicate_properties(filtered)
 
     # Step 6: AI Ranking
     print("\n--- Step 6: AI Ranking ---")
