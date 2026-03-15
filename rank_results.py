@@ -102,7 +102,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
     rejected_duplicate = 0
 
     for prop in properties:
-        # Deduplicate by URL (keep first/highest-ranked occurrence)
+        # Deduplicate by URL (keep first occurrence)
         url = prop.get("url", "")
         if url and url in seen_urls:
             rejected_duplicate += 1
