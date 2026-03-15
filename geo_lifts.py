@@ -9,6 +9,7 @@ Ski lift lookup via Overpass API for aerialway features within 800m.
 
 import asyncio
 import math
+import time
 
 import httpx
 
@@ -151,37 +152,9 @@ async def find_nearby_lifts(
         return []
 
 
-async def enrich_property(client: httpx.AsyncClient, prop: dict) -> dict:
-    """Geocode a property (if needed) and find nearby ski lifts."""
+def _attach_lift_data(prop: dict, lifts: list[dict]) -> None:
+    """Store lift lookup results on a property dict."""
     name = prop.get("name", "?")
-
-    # Step 3: Geocode if needed
-    lat = prop.get("latitude")
-    lon = prop.get("longitude")
-
-    if lat is None or lon is None:
-        address = prop.get("street_address") or prop.get("address", "")
-        resort = prop.get("resort", "")
-        if address:
-            coords = await geocode_address(client, address, resort)
-            if coords:
-                lat, lon = coords
-                prop["latitude"] = lat
-                prop["longitude"] = lon
-                prop["geocode_source"] = "nominatim"
-                print(f"    Geocoded {name}: {lat}, {lon}")
-            else:
-                print(f"    Could not geocode {name}")
-        else:
-            print(f"    No address for {name}, skipping geocode")
-    else:
-        prop["geocode_source"] = "booking"
-
-    # Step 4: Find nearby ski lifts
-    lifts = []
-    if lat is not None and lon is not None:
-        lifts = await find_nearby_lifts(client, lat, lon)
-
     prop["nearby_lifts"] = lifts
     if lifts:
         nearest = lifts[0]
@@ -199,32 +172,91 @@ async def enrich_property(client: httpx.AsyncClient, prop: dict) -> dict:
         prop["nearest_lift_type"] = None
         prop["nearest_lift_distance_m"] = None
         prop["nearest_lift_walk_minutes"] = None
-        if lat is not None:
+        if prop.get("latitude") is not None:
             print(f"    No ski lifts found near {name}")
 
-    return prop
+
+async def _geocode_all(client: httpx.AsyncClient, properties: list[dict]) -> None:
+    """Geocode properties sequentially (Nominatim 1 req/sec rate limit)."""
+    for prop in properties:
+        name = prop.get("name", "?")
+        lat = prop.get("latitude")
+        lon = prop.get("longitude")
+
+        if lat is not None and lon is not None:
+            prop["geocode_source"] = "booking"
+            continue
+
+        address = prop.get("street_address") or prop.get("address", "")
+        resort = prop.get("resort", "")
+        if not address:
+            print(f"    No address for {name}, skipping geocode")
+            continue
+
+        coords = await geocode_address(client, address, resort)
+        if coords:
+            prop["latitude"], prop["longitude"] = coords
+            prop["geocode_source"] = "nominatim"
+            print(f"    Geocoded {name}: {coords[0]}, {coords[1]}")
+        else:
+            print(f"    Could not geocode {name}")
+        # geocode_address already sleeps 1s per attempt; add a small extra
+        # buffer only when a request was actually made.
+        await asyncio.sleep(0.5)
+
+
+async def _find_lifts_for_property(
+    client: httpx.AsyncClient, prop: dict, sem: asyncio.Semaphore
+) -> None:
+    """Find nearby lifts for a single property (called concurrently)."""
+    lat = prop.get("latitude")
+    lon = prop.get("longitude")
+
+    lifts = []
+    if lat is not None and lon is not None:
+        async with sem:
+            lifts = await find_nearby_lifts(client, lat, lon)
+
+    _attach_lift_data(prop, lifts)
 
 
 async def enrich_all(properties: list[dict]) -> list[dict]:
-    """Enrich all properties with geocoding and lift data."""
-    print(f"\nEnriching {len(properties)} properties with geo + lift data...")
+    """Enrich all properties with geocoding and lift data.
+
+    Phase 1 — Geocode sequentially (Nominatim rate-limits to 1 req/sec).
+    Phase 2 — Find lifts in parallel (Overpass has no strict per-IP limit).
+    """
+    total = len(properties)
+    print(f"\nEnriching {total} properties with geo + lift data...")
 
     async with httpx.AsyncClient() as client:
-        enriched = []
-        for i, prop in enumerate(properties):
-            print(f"  [{i + 1}/{len(properties)}] {prop.get('name', '?')}")
-            enriched_prop = await enrich_property(client, prop)
-            enriched.append(enriched_prop)
-            # Rate limit for Nominatim (1 req/sec) + Overpass courtesy
-            await asyncio.sleep(1.5)
+        # Phase 1: Geocode (sequential)
+        t0 = time.perf_counter()
+        print(f"\n  [geocode] start — {total} properties")
+        await _geocode_all(client, properties)
+        t1 = time.perf_counter()
+        print(f"  [geocode] done — {t1 - t0:.1f}s")
 
-    n_booking  = sum(1 for p in enriched if p.get("geocode_source") == "booking")
-    n_nominatim = sum(1 for p in enriched if p.get("geocode_source") == "nominatim")
-    n_no_coords = sum(1 for p in enriched if p.get("latitude") is None)
-    n_has_lift  = sum(1 for p in enriched if p.get("nearest_lift_name"))
-    n_no_lift   = sum(1 for p in enriched if p.get("latitude") is not None and not p.get("nearest_lift_name"))
-    print(f"\nEnrichment summary ({len(enriched)} properties):")
+        # Phase 2: Lift lookup (parallel, capped at 5 concurrent requests)
+        print(f"\n  [lifts] start — querying Overpass in parallel")
+        sem = asyncio.Semaphore(5)
+        has_coords = [p for p in properties if p.get("latitude") is not None]
+        no_coords = [p for p in properties if p.get("latitude") is None]
+        for p in no_coords:
+            _attach_lift_data(p, [])
+        tasks = [_find_lifts_for_property(client, prop, sem) for prop in has_coords]
+        await asyncio.gather(*tasks)
+        t2 = time.perf_counter()
+        print(f"  [lifts] done — {t2 - t1:.1f}s")
+
+    n_booking   = sum(1 for p in properties if p.get("geocode_source") == "booking")
+    n_nominatim = sum(1 for p in properties if p.get("geocode_source") == "nominatim")
+    n_no_coords = sum(1 for p in properties if p.get("latitude") is None)
+    n_has_lift  = sum(1 for p in properties if p.get("nearest_lift_name"))
+    n_no_lift   = sum(1 for p in properties if p.get("latitude") is not None and not p.get("nearest_lift_name"))
+    print(f"\nEnrichment summary ({total} properties):")
     print(f"  Geocoding : {n_booking} from Booking.com, {n_nominatim} via Nominatim, {n_no_coords} failed")
     print(f"  Lift data : {n_has_lift} with nearest lift, {n_no_lift} no lift found nearby")
+    print(f"  Total enrichment time: {t2 - t0:.1f}s")
 
-    return enriched
+    return properties
