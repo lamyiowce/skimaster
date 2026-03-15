@@ -17,54 +17,58 @@ import openai
 
 import config
 
+# Compiled once at module level for efficiency
+_BEDROOM_PATTERNS = [
+    re.compile(r"(\d+)\s*bed\s*rooms?", re.IGNORECASE),
+    re.compile(r"(\d+)\s*bedrooms?", re.IGNORECASE),
+    re.compile(r"(\d+)\s*(?:br|bdr|bdrm)s?\b", re.IGNORECASE),
+]
+_CAPACITY_PATTERNS = [
+    re.compile(r"sleeps\s+(\d+)", re.IGNORECASE),
+    re.compile(r"(\d+)\s*guests?", re.IGNORECASE),
+    re.compile(r"for\s+(\d+)\s*people", re.IGNORECASE),
+    re.compile(r"capacity[:\s]+(\d+)", re.IGNORECASE),
+    re.compile(r"up\s+to\s+(\d+)", re.IGNORECASE),
+    re.compile(r"(\d+)\s*person", re.IGNORECASE),
+    re.compile(r"(\d+)\s*beds\b", re.IGNORECASE),
+]
+_MULTI_UNIT_PATTERNS = [
+    re.compile(r"\b[2-9]\s*(?:apartments?|units?|chalets?|villas?)\b"),
+    re.compile(r"\bapartments?\s*[2-9]\b"),
+    re.compile(r"\bmultiple\s+(?:apartments?|units?)\b"),
+]
+
+
+def _listing_text(prop: dict) -> str:
+    return prop.get("card_text", "") + " " + prop.get("name", "")
+
+
+def _first_int_match(
+    text: str, patterns: list[re.Pattern], min_val: int, max_val: int
+) -> int | None:
+    for pattern in patterns:
+        match = pattern.search(text)
+        if match:
+            val = int(match.group(1))
+            if min_val <= val <= max_val:
+                return val
+    return None
+
 
 def parse_bedroom_count(prop: dict) -> int | None:
     """Extract bedroom count from listing text."""
-    text = prop.get("card_text", "") + " " + prop.get("name", "")
-    patterns = [
-        r"(\d+)\s*bed\s*rooms?",
-        r"(\d+)\s*bedrooms?",
-        r"(\d+)\s*(?:br|bdr|bdrm)s?\b",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            val = int(match.group(1))
-            if 1 <= val <= 20:
-                return val
-    return None
+    return _first_int_match(_listing_text(prop), _BEDROOM_PATTERNS, 1, 20)
 
 
 def is_multi_unit(prop: dict) -> bool:
     """Return True if the listing appears to be multiple separate units."""
-    text = (prop.get("card_text", "") + " " + prop.get("name", "")).lower()
-    patterns = [
-        r"\b[2-9]\s*(?:apartments?|units?|chalets?|villas?)\b",
-        r"\bapartments?\s*[2-9]\b",
-        r"\bmultiple\s+(?:apartments?|units?)\b",
-    ]
-    return any(re.search(p, text) for p in patterns)
+    text = _listing_text(prop).lower()
+    return any(p.search(text) for p in _MULTI_UNIT_PATTERNS)
 
 
 def parse_capacity(prop: dict) -> int | None:
     """Extract property capacity from listing text."""
-    text = prop.get("card_text", "") + " " + prop.get("name", "")
-    patterns = [
-        r"sleeps\s+(\d+)",
-        r"(\d+)\s*guests?",
-        r"for\s+(\d+)\s*people",
-        r"capacity[:\s]+(\d+)",
-        r"up\s+to\s+(\d+)",
-        r"(\d+)\s*person",
-        r"(\d+)\s*bed\s*(?:room|s)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            val = int(match.group(1))
-            if 4 <= val <= 30:
-                return val
-    return None
+    return _first_int_match(_listing_text(prop), _CAPACITY_PATTERNS, 4, 30)
 
 
 def calculate_max_budget(capacity: int | None) -> float:
