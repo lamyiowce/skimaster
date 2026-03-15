@@ -25,9 +25,8 @@ on:
         required: false
         default: ""
 
-  # Uncomment for weekly schedule:
-  # schedule:
-  #   - cron: "0 8 * * 0"  # Every Sunday at 8am UTC
+  schedule:
+    - cron: "0 6 * * *"  # Every day at 6am UTC
 
 jobs:
   search:
