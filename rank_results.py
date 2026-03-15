@@ -1,7 +1,7 @@
 """Steps 5 & 6: Filter properties by criteria and rank with Claude AI.
 
 Filtering:
-- Reject properties beyond MAX_WALK_TO_LIFT_MINUTES (keep unknowns for AI)
+- Reject properties beyond MAX_WALK_TO_LIFT_MINUTES (no lift data = too far)
 - Reject over-budget properties (budget scales with capacity)
 
 AI Ranking:
@@ -105,9 +105,9 @@ def filter_properties(properties: list[dict]) -> list[dict]:
             rejected_multi_unit += 1
             continue
 
-        # Filter by lift distance (keep unknowns for AI to evaluate)
+        # Filter by lift distance (no lift data = assume too far)
         walk_min = prop.get("nearest_lift_walk_minutes")
-        if walk_min is not None and walk_min > config.MAX_WALK_TO_LIFT_MINUTES:
+        if walk_min is None or walk_min > config.MAX_WALK_TO_LIFT_MINUTES:
             rejected_distance += 1
             continue
 
@@ -153,6 +153,33 @@ def filter_properties(properties: list[dict]) -> list[dict]:
     print(f"  Remaining: {len(filtered)} properties")
 
     return filtered
+
+
+def deduplicate_properties(properties: list[dict]) -> list[dict]:
+    """Deduplicate by URL, keeping the best version (shortest walk, lowest price)."""
+    # Sort so the best version of each property comes first
+    def quality_key(p):
+        walk = p.get("nearest_lift_walk_minutes") or float("inf")
+        price = p.get("price") or float("inf")
+        return (walk, price)
+
+    sorted_props = sorted(properties, key=quality_key)
+
+    seen_urls = set()
+    deduped = []
+    for prop in sorted_props:
+        url = prop.get("url", "")
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        deduped.append(prop)
+
+    removed = len(properties) - len(deduped)
+    if removed:
+        print(f"  Deduplicated: removed {removed} duplicate(s), {len(deduped)} remaining")
+
+    return deduped
 
 
 def build_ai_prompt(properties: list[dict]) -> str:
@@ -208,7 +235,7 @@ Rank these properties and give me your **top 5** recommendations, ordered by ove
 
 For each property, provide:
 1. **Name** and resort
-2. **Price per person per night** in CHF
+2. **Price per person** in CHF (total for the stay, not per night)
 3. **Nearest lift** — name, type, and walk time
 4. **Rating** and review count
 5. **Booking link**
