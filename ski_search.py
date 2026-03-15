@@ -162,7 +162,7 @@ def main():
 
         # Step 2: Scrape
         print("--- Step 2: Scraping Booking.com ---")
-        properties = asyncio.run(scrape_all(dest_ids, resorts=resorts))
+        properties = asyncio.run(scrape_all(dest_ids, resorts=resorts, debug=bool(args.resort)))
         save_json(properties, config.RAW_RESULTS_CACHE, resorts=resorts)
 
         if args.scrape_only:

@@ -273,12 +273,14 @@ async def scrape_resort(
     return properties
 
 
-async def scrape_all(dest_ids: dict, resorts: dict) -> list[dict]:
+async def scrape_all(dest_ids: dict, resorts: dict, debug: bool = False) -> list[dict]:
     """Scrape all resort groups and return combined property list.
 
     For each resort group the full list of configured villages is searched.
     Properties from all villages are tagged with the parent resort group name.
     Duplicates (same URL appearing in two village searches) are removed.
+
+    Set debug=True (enabled automatically by --resort) for verbose per-village output.
     """
     all_properties = []
 
@@ -288,13 +290,15 @@ async def scrape_all(dest_ids: dict, resorts: dict) -> list[dict]:
         )
 
         for resort_group, villages in resorts.items():
-            print(f"\n=== Resort group: {resort_group} ({len(villages)} village(s)) ===")
+            if debug:
+                print(f"\n=== Resort group: {resort_group} ({len(villages)} village(s)) ===")
             seen_urls: set[str] = set()
             group_properties = []
 
             for village in villages:
                 if village not in dest_ids:
-                    print(f"  Skipping {village} — no dest_id resolved")
+                    if debug:
+                        print(f"  Skipping {village} — no dest_id resolved")
                     continue
 
                 props = await scrape_resort(resort_group, dest_ids[village], context)
@@ -307,13 +311,14 @@ async def scrape_all(dest_ids: dict, resorts: dict) -> list[dict]:
                     if url not in seen_urls:
                         seen_urls.add(url)
                         new_props.append(prop)
-                if len(props) != len(new_props):
+                if debug and len(props) != len(new_props):
                     print(f"    Removed {len(props) - len(new_props)} duplicate(s) from {village}")
 
                 group_properties.extend(new_props)
                 await asyncio.sleep(3)  # Polite delay between village searches
 
-            print(f"  → {len(group_properties)} unique properties for {resort_group}")
+            if debug:
+                print(f"  → {len(group_properties)} unique properties for {resort_group}")
             all_properties.extend(group_properties)
 
         await browser.close()
