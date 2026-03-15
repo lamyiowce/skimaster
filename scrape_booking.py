@@ -96,11 +96,12 @@ async def extract_property_cards(page) -> list[dict]:
             else:
                 prop["url"] = ""
 
-            # Price
+            # Price — use .last because discounted listings have two elements
+            # (strikethrough original + actual price); we want the final price
             price_el = card.locator("[data-testid='price-and-discounted-price']")
             if await price_el.count() == 0:
                 price_el = card.locator("span.prco-valign-middle-helper")
-            price_text = await price_el.text_content() if await price_el.count() > 0 else ""
+            price_text = await price_el.last.text_content() if await price_el.count() > 0 else ""
             prop["price"] = parse_price(price_text)
             prop["price_text"] = (price_text or "").strip()
 
