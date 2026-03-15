@@ -208,10 +208,7 @@ def build_ai_prompt(properties: list[dict]) -> str:
             lines.append(f"- Bedrooms: {p['bedroom_count']}")
         if p.get("parsed_capacity"):
             lines.append(f"- Capacity: sleeps {p['parsed_capacity']}")
-        if p.get("free_cancellation"):
-            lines.append("- Free cancellation: YES")
-        else:
-            lines.append("- Free cancellation: NO")
+        lines.append(f"- Free cancellation: {'YES' if p.get('free_cancellation') else 'NO'}")
         if p.get("street_address"):
             lines.append(f"- Address: {p['street_address']}")
         lines.append(f"- URL: {p.get('url', 'N/A')}")
@@ -282,7 +279,8 @@ def rank_with_ai(properties: list[dict]) -> str:
 
 def fallback_ranking(properties: list[dict]) -> str:
     """Generate a basic Markdown table sorted by lift distance and price."""
-    # Sort: free cancellation first, then by lift distance, then by price
+    # Sort tuple: (no_free_cancel, no_lift_data, walk_minutes, price)
+    # — free cancellation first, then properties with known lift data, then by distance, then price
     def sort_key(p):
         no_free_cancel = 0 if p.get("free_cancellation") else 1
         walk = p.get("nearest_lift_walk_minutes")
