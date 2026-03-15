@@ -58,10 +58,7 @@ async def geocode_address(client: httpx.AsyncClient, address: str, resort: str =
     """Geocode an address using Nominatim. Returns (lat, lng) or None."""
     queries = [address]
     if resort:
-        queries.append(f"{address}, {resort}")
-    # Also try just the resort name as a last resort
-    if resort:
-        queries.append(resort)
+        queries.extend([f"{address}, {resort}", resort])
 
     for query in queries:
         try:
@@ -162,7 +159,7 @@ async def enrich_property(client: httpx.AsyncClient, prop: dict) -> dict:
     lat = prop.get("latitude")
     lon = prop.get("longitude")
 
-    if not lat or not lon:
+    if lat is None or lon is None:
         address = prop.get("street_address") or prop.get("address", "")
         resort = prop.get("resort", "")
         if address:
@@ -181,33 +178,29 @@ async def enrich_property(client: httpx.AsyncClient, prop: dict) -> dict:
         prop["geocode_source"] = "booking"
 
     # Step 4: Find nearby ski lifts
-    if lat and lon:
+    lifts = []
+    if lat is not None and lon is not None:
         lifts = await find_nearby_lifts(client, lat, lon)
-        prop["nearby_lifts"] = lifts
-        if lifts:
-            nearest = lifts[0]
-            prop["nearest_lift_name"] = nearest["name"]
-            prop["nearest_lift_type"] = nearest["type"]
-            prop["nearest_lift_distance_m"] = nearest["distance_m"]
-            prop["nearest_lift_walk_minutes"] = nearest["walk_minutes"]
-            print(
-                f"    Nearest lift for {name}: {nearest['name']} "
-                f"({nearest['type']}) — {nearest['distance_m']}m, "
-                f"{nearest['walk_minutes']} min walk"
-            )
-        else:
-            prop["nearby_lifts"] = []
-            prop["nearest_lift_name"] = None
-            prop["nearest_lift_type"] = None
-            prop["nearest_lift_distance_m"] = None
-            prop["nearest_lift_walk_minutes"] = None
-            print(f"    No ski lifts found near {name}")
+
+    prop["nearby_lifts"] = lifts
+    if lifts:
+        nearest = lifts[0]
+        prop["nearest_lift_name"] = nearest["name"]
+        prop["nearest_lift_type"] = nearest["type"]
+        prop["nearest_lift_distance_m"] = nearest["distance_m"]
+        prop["nearest_lift_walk_minutes"] = nearest["walk_minutes"]
+        print(
+            f"    Nearest lift for {name}: {nearest['name']} "
+            f"({nearest['type']}) — {nearest['distance_m']}m, "
+            f"{nearest['walk_minutes']} min walk"
+        )
     else:
-        prop["nearby_lifts"] = []
         prop["nearest_lift_name"] = None
         prop["nearest_lift_type"] = None
         prop["nearest_lift_distance_m"] = None
         prop["nearest_lift_walk_minutes"] = None
+        if lat is not None:
+            print(f"    No ski lifts found near {name}")
 
     return prop
 

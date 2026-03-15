@@ -112,7 +112,7 @@ def build_ai_prompt(properties: list[dict]) -> str:
             f"- Price: {p.get('price_text', 'Unknown')} ({config.CURRENCY} total for stay)",
         ]
         if p.get("price_per_person_per_night"):
-            lines.append(f"- Price per person per night: CHF {p['price_per_person_per_night']}")
+            lines.append(f"- Price per person per night: {config.CURRENCY} {p['price_per_person_per_night']}")
         if p.get("rating"):
             lines.append(f"- Rating: {p['rating']}/10 ({p.get('review_count', '?')} reviews)")
         if p.get("nearest_lift_name"):
