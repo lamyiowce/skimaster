@@ -106,6 +106,21 @@ _HTML_WRAPPER = """\
   li {{ margin-bottom: 6px; font-size: 15px; color: #2d3748; }}
   li p {{ margin: 0; }}
 
+  /* Top-level numbered list items (property recommendations) */
+  ol > li {{
+    margin-bottom: 20px;
+    padding: 14px 16px;
+    background: #f7fafc;
+    border-radius: 8px;
+    border-left: 4px solid #2d6a9f;
+  }}
+  ol > li > strong:first-child {{
+    font-size: 17px;
+    color: #1e3a5f;
+    display: block;
+    margin-bottom: 6px;
+  }}
+
   strong {{ color: #1a202c; }}
   em {{ color: #718096; }}
 
@@ -253,7 +268,7 @@ def _build_html(markdown_text: str) -> str:
     body_md = _strip_footer(_strip_meta_block(markdown_text))
     body_html = md.markdown(
         body_md,
-        extensions=["tables", "nl2br"],
+        extensions=["tables"],
         output_format="html",
     )
 

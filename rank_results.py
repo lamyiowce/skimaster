@@ -1,7 +1,7 @@
 """Steps 5 & 6: Filter properties by criteria and rank with Claude AI.
 
 Filtering:
-- Reject properties beyond MAX_WALK_TO_LIFT_MINUTES (keep unknowns for AI)
+- Reject properties beyond MAX_WALK_TO_LIFT_MINUTES (no lift data = too far)
 - Reject over-budget properties (budget scales with capacity)
 
 AI Ranking:
@@ -92,22 +92,32 @@ def calculate_num_nights() -> int:
 def filter_properties(properties: list[dict]) -> list[dict]:
     """Apply distance, budget, bedroom count, and single-unit filters."""
     filtered = []
+    seen_urls = set()
     num_nights = calculate_num_nights()
     rejected_distance = 0
     rejected_budget = 0
     rejected_multi_unit = 0
     rejected_bedrooms = 0
     rejected_rating = 0
+    rejected_duplicate = 0
 
     for prop in properties:
+        # Deduplicate by URL (keep first/highest-ranked occurrence)
+        url = prop.get("url", "")
+        if url and url in seen_urls:
+            rejected_duplicate += 1
+            continue
+        if url:
+            seen_urls.add(url)
+
         # Filter: single accommodation unit only (no multi-apartment setups)
         if config.MAX_ACCOMMODATION_UNITS == 1 and is_multi_unit(prop):
             rejected_multi_unit += 1
             continue
 
-        # Filter by lift distance (keep unknowns for AI to evaluate)
+        # Filter by lift distance (no lift data = assume too far)
         walk_min = prop.get("nearest_lift_walk_minutes")
-        if walk_min is not None and walk_min > config.MAX_WALK_TO_LIFT_MINUTES:
+        if walk_min is None or walk_min > config.MAX_WALK_TO_LIFT_MINUTES:
             rejected_distance += 1
             continue
 
@@ -145,6 +155,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
 
     print(f"\nFiltering results:")
     print(f"  Input: {len(properties)} properties")
+    print(f"  Rejected (duplicate): {rejected_duplicate}")
     print(f"  Rejected (multiple units): {rejected_multi_unit}")
     print(f"  Rejected (too far from lift): {rejected_distance}")
     print(f"  Rejected (over budget): {rejected_budget}")
@@ -208,7 +219,7 @@ Rank these properties and give me your **top 5** recommendations, ordered by ove
 
 For each property, provide:
 1. **Name** and resort
-2. **Price per person per night** in CHF
+2. **Price per person** in CHF (total for the stay, not per night)
 3. **Nearest lift** — name, type, and walk time
 4. **Rating** and review count
 5. **Booking link**
