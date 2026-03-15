@@ -218,4 +218,13 @@ async def enrich_all(properties: list[dict]) -> list[dict]:
             # Rate limit for Nominatim (1 req/sec) + Overpass courtesy
             await asyncio.sleep(1.5)
 
+    n_booking  = sum(1 for p in enriched if p.get("geocode_source") == "booking")
+    n_nominatim = sum(1 for p in enriched if p.get("geocode_source") == "nominatim")
+    n_no_coords = sum(1 for p in enriched if p.get("latitude") is None)
+    n_has_lift  = sum(1 for p in enriched if p.get("nearest_lift_name"))
+    n_no_lift   = sum(1 for p in enriched if p.get("latitude") is not None and not p.get("nearest_lift_name"))
+    print(f"\nEnrichment summary ({len(enriched)} properties):")
+    print(f"  Geocoding : {n_booking} from Booking.com, {n_nominatim} via Nominatim, {n_no_coords} failed")
+    print(f"  Lift data : {n_has_lift} with nearest lift, {n_no_lift} no lift found nearby")
+
     return enriched

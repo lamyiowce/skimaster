@@ -68,7 +68,6 @@ async def resolve_single_dest_id(resort: str, page) -> dict | None:
         if dest_id:
             print(f"  ✓ {resort}: dest_id={dest_id}, dest_type={dest_type or 'city'}")
             return {
-                "resort": resort,
                 "dest_id": dest_id,
                 "dest_type": dest_type or "city",
             }
@@ -96,33 +95,58 @@ def save_cache(cache: dict):
         json.dump(cache, f, indent=2, ensure_ascii=False)
 
 
-async def resolve_dest_ids(resorts: list[str]) -> dict:
-    """Resolve dest_ids for all resorts, using cache where available."""
+def all_villages(resorts: dict | None = None) -> list[str]:
+    """Return a flat list of every village search term for the given resorts dict.
+
+    Defaults to config.RESORTS when no dict is provided.
+    """
+    if resorts is None:
+        resorts = config.RESORTS
+    villages = []
+    for village_list in resorts.values():
+        villages.extend(village_list)
+    return villages
+
+
+async def resolve_dest_ids(villages: list[str]) -> dict:
+    """Resolve dest_ids for the given villages, using cache where available.
+
+    Returns a dict keyed by village name containing only the requested villages
+    (not the full cache).
+    """
     cache = load_cache()
-    to_resolve = [r for r in resorts if r not in cache]
+    to_resolve = [v for v in villages if v not in cache]
 
     if not to_resolve:
-        print(f"All {len(resorts)} resort dest_ids loaded from cache.")
-        return cache
+        print(f"All {len(villages)} village dest_ids loaded from cache.")
+    else:
+        print(f"Resolving {len(to_resolve)} village dest_ids (cached: {len(villages) - len(to_resolve)})...")
 
-    print(f"Resolving {len(to_resolve)} resort dest_ids (cached: {len(resorts) - len(to_resolve)})...")
+        async with async_playwright() as p:
+            browser, context = await create_browser_context(p)
+            page = await context.new_page()
 
-    async with async_playwright() as p:
-        browser, context = await create_browser_context(p)
-        page = await context.new_page()
+            for village in to_resolve:
+                result = await resolve_single_dest_id(village, page)
+                if result:
+                    cache[village] = result
+                await asyncio.sleep(2)  # Polite delay between lookups
 
-        for resort in to_resolve:
-            result = await resolve_single_dest_id(resort, page)
-            if result:
-                cache[resort] = result
-            await asyncio.sleep(2)  # Polite delay between lookups
+            await browser.close()
 
-        await browser.close()
+        save_cache(cache)
 
-    save_cache(cache)
-    return cache
+    result = {v: cache[v] for v in villages if v in cache}
+    n_cache = len(villages) - len(to_resolve)
+    n_new = len(result) - n_cache
+    n_failed = len(villages) - len(result)
+    print(f"  dest_id summary: {len(result)}/{len(villages)} resolved "
+          f"({n_cache} from cache, {n_new} new"
+          + (f", {n_failed} failed" if n_failed else "") + ")")
+    return result
 
 
 if __name__ == "__main__":
-    results = asyncio.run(resolve_dest_ids(config.RESORTS))
-    print(f"\nResolved {len(results)} resorts total.")
+    villages = all_villages()
+    results = asyncio.run(resolve_dest_ids(villages))
+    print(f"\nResolved {len(results)}/{len(villages)} villages total.")
