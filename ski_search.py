@@ -38,17 +38,49 @@ def print_banner():
     print()
 
 
-def save_json(data, path: str):
-    """Save data to JSON file."""
+def save_json(data: list[dict], path: str, resorts: dict):
+    """Save property list to JSON, embedding the resort groups that produced it."""
+    payload = {
+        "resorts_searched": list(resorts.keys()),
+        "properties": data,
+    }
     with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
     print(f"Cached results to {path}")
 
 
-def load_json(path: str) -> list[dict]:
-    """Load data from JSON file."""
+def load_json(path: str, expected_resorts: dict) -> list[dict]:
+    """Load a property list from JSON and warn if it came from a different resort set.
+
+    Handles both the current wrapped format and plain-list files from older runs.
+    """
     with open(path) as f:
-        return json.load(f)
+        raw = json.load(f)
+
+    if isinstance(raw, list):
+        # Legacy format — no metadata available
+        print(f"  Warning: {path} has no metadata (old format); resort coverage unknown.")
+        return raw
+
+    properties = raw["properties"]
+    cached_resorts = set(raw.get("resorts_searched", []))
+    expected = set(expected_resorts.keys())
+
+    missing = expected - cached_resorts
+    extra = cached_resorts - expected
+
+    if missing:
+        print(f"  Warning: cache is missing {len(missing)} resort(s) vs current config:")
+        for r in sorted(missing):
+            print(f"    - {r}")
+    if extra:
+        print(f"  Warning: cache contains {len(extra)} resort(s) not in current config:")
+        for r in sorted(extra):
+            print(f"    + {r}")
+    if not missing and not extra:
+        print(f"  Resort coverage matches config ({len(cached_resorts)} resort(s)).")
+
+    return properties
 
 
 def main():
@@ -91,7 +123,7 @@ def main():
     if args.from_enriched:
         # Skip to filtering + ranking
         print(f"Loading enriched results from {args.from_enriched}...")
-        properties = load_json(args.from_enriched)
+        properties = load_json(args.from_enriched, expected_resorts=resorts)
         if args.resort:
             properties = [p for p in properties if p.get("resort") in resorts]
         print(f"Loaded {len(properties)} enriched properties.")
@@ -99,7 +131,7 @@ def main():
     elif args.from_cache:
         # Skip scraping, redo geo + ranking
         print(f"Loading raw results from {args.from_cache}...")
-        properties = load_json(args.from_cache)
+        properties = load_json(args.from_cache, expected_resorts=resorts)
         if args.resort:
             properties = [p for p in properties if p.get("resort") in resorts]
         print(f"Loaded {len(properties)} raw properties.")
@@ -107,7 +139,7 @@ def main():
         # Step 3+4: Geocode + find lifts
         print("\n--- Step 3+4: Geocoding & Lift Lookup ---")
         properties = asyncio.run(enrich_all(properties))
-        save_json(properties, config.ENRICHED_RESULTS_CACHE)
+        save_json(properties, config.ENRICHED_RESULTS_CACHE, resorts=resorts)
 
     else:
         # Full pipeline
@@ -120,7 +152,7 @@ def main():
         # Step 2: Scrape
         print("--- Step 2: Scraping Booking.com ---")
         properties = asyncio.run(scrape_all(dest_ids, resorts=resorts))
-        save_json(properties, config.RAW_RESULTS_CACHE)
+        save_json(properties, config.RAW_RESULTS_CACHE, resorts=resorts)
 
         if args.scrape_only:
             print(f"\n--scrape-only: Done. {len(properties)} properties saved to {config.RAW_RESULTS_CACHE}")
@@ -129,7 +161,7 @@ def main():
         # Step 3+4: Geocode + find lifts
         print("\n--- Step 3+4: Geocoding & Lift Lookup ---")
         properties = asyncio.run(enrich_all(properties))
-        save_json(properties, config.ENRICHED_RESULTS_CACHE)
+        save_json(properties, config.ENRICHED_RESULTS_CACHE, resorts=resorts)
 
     # Step 5: Filter
     print("\n--- Step 5: Filtering ---")
