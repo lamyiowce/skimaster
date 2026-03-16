@@ -297,6 +297,35 @@ _STATUS_BANNER = {
 }
 
 
+def _fix_nested_list_indent(markdown_text: str) -> str:
+    """Ensure sub-bullets under numbered list items use 4-space indent.
+
+    The Python ``markdown`` library requires 4-space indentation to nest
+    a bullet list inside an ordered-list item.  AI-generated content often
+    uses only 2-3 spaces, which causes every bullet to render as its own
+    top-level numbered item instead of being grouped under the property.
+    """
+    import re
+    lines = markdown_text.split("\n")
+    result = []
+    in_numbered_item = False
+    for line in lines:
+        # Detect a numbered list item (e.g. "1. **Name**")
+        if re.match(r"^\d+\.\s", line):
+            in_numbered_item = True
+            result.append(line)
+        elif in_numbered_item and re.match(r"^\s{1,3}-\s", line):
+            # Sub-bullet with <4 spaces indent — normalize to 4 spaces
+            result.append("    " + line.lstrip())
+        else:
+            if line.strip() == "":
+                pass  # blank lines don't reset context
+            else:
+                in_numbered_item = False
+            result.append(line)
+    return "\n".join(result)
+
+
 def _build_html(markdown_text: str) -> str:
     import re
     meta = _extract_meta(markdown_text)
@@ -309,7 +338,7 @@ def _build_html(markdown_text: str) -> str:
         _meta_item("Properties checked", meta.get("analyzed", "—")),
     ])
 
-    body_md = _strip_footer(_strip_meta_block(markdown_text))
+    body_md = _fix_nested_list_indent(_strip_footer(_strip_meta_block(markdown_text)))
     body_html = md.markdown(
         body_md,
         extensions=["tables"],
