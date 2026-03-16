@@ -345,11 +345,34 @@ def fallback_ranking(properties: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def determine_fit_status(filtered: list[dict]) -> str:
+    """Return 'perfect', 'potential', or 'none' based on the filtered property list.
+
+    perfect   — at least one property meets all soft requirements
+                (capacity ≥ group size, free cancellation, sauna if required)
+    potential — properties found but none fully meets all soft requirements
+    none      — no properties survived the hard filters
+    """
+    if not filtered:
+        return "none"
+    for prop in filtered:
+        capacity = prop.get("parsed_capacity") or 0
+        free_cancel = bool(prop.get("free_cancellation"))
+        sauna_ok = (
+            not config.REQUIRE_SAUNA
+            or bool(_SAUNA_PATTERN.search(_listing_text(prop)))
+        )
+        if capacity >= config.GROUP_SIZE and free_cancel and sauna_ok:
+            return "perfect"
+    return "potential"
+
+
 def write_results(
     ai_ranking: str, properties: list[dict], output_md: str, output_csv: str
 ):
     """Write results to Markdown and CSV files."""
     num_nights = calculate_num_nights()
+    fit_status = determine_fit_status(properties)
 
     # Markdown report
     md_lines = [
@@ -361,6 +384,7 @@ def write_results(
         f"**Budget:** max {config.MAX_PRICE_PER_PERSON_CHF} CHF/person",
         f"**Max walk to lift:** {config.MAX_WALK_TO_LIFT_MINUTES} min",
         f"**Properties analyzed:** {len(properties)}",
+        f"**Fit status:** {fit_status}",
         "",
         "---",
         "",

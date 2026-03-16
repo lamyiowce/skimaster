@@ -187,6 +187,23 @@ _HTML_WRAPPER = """\
     border-radius: 0 4px 4px 0;
   }}
 
+  /* Fit-status banner */
+  .status-banner {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 28px;
+    letter-spacing: 0.2px;
+  }}
+  .status-perfect  {{ background: #c6f6d5; color: #276749; border: 1px solid #9ae6b4; }}
+  .status-potential {{ background: #fefcbf; color: #744210; border: 1px solid #f6e05e; }}
+  .status-none     {{ background: #fed7d7; color: #742a2a; border: 1px solid #fc8181; }}
+  .status-icon {{ font-size: 20px; line-height: 1; }}
+
   /* Footer */
   .footer {{
     background: #f7fafc;
@@ -212,6 +229,7 @@ _HTML_WRAPPER = """\
   </div>
 
   <div class="body">
+    {status_banner}
     {body_html}
   </div>
 
@@ -243,11 +261,12 @@ def _extract_meta(markdown_text: str) -> dict:
     meta = {}
     for line in markdown_text.splitlines():
         for key, pattern in [
-            ("dates",    "**Dates:**"),
-            ("group",    "**Group size:**"),
-            ("budget",   "**Budget:**"),
-            ("walk",     "**Max walk to lift:**"),
-            ("analyzed", "**Properties analyzed:**"),
+            ("dates",      "**Dates:**"),
+            ("group",      "**Group size:**"),
+            ("budget",     "**Budget:**"),
+            ("walk",       "**Max walk to lift:**"),
+            ("analyzed",   "**Properties analyzed:**"),
+            ("fit_status", "**Fit status:**"),
         ]:
             if pattern in line:
                 meta[key] = line.split(pattern, 1)[1].strip()
@@ -272,6 +291,13 @@ def _strip_footer(markdown_text: str) -> str:
     return markdown_text
 
 
+_STATUS_BANNER = {
+    "perfect":   ('<span class="status-icon">✓</span> Perfect fit found',   "status-perfect"),
+    "potential": ('<span class="status-icon">⚠</span> Potential fits found', "status-potential"),
+    "none":      ('<span class="status-icon">✗</span> No suitable accommodation found', "status-none"),
+}
+
+
 def _build_html(markdown_text: str) -> str:
     import re
     meta = _extract_meta(markdown_text)
@@ -294,8 +320,13 @@ def _build_html(markdown_text: str) -> str:
     resorts_match = re.search(r"(\d+) resorts searched", markdown_text)
     resorts_searched = resorts_match.group(1) if resorts_match else "?"
 
+    fit_key = meta.get("fit_status", "potential")
+    label, css_class = _STATUS_BANNER.get(fit_key, _STATUS_BANNER["potential"])
+    status_banner = f'<div class="status-banner {css_class}">{label}</div>'
+
     return _HTML_WRAPPER.format(
         meta_items=meta_items,
+        status_banner=status_banner,
         body_html=body_html,
         resorts_searched=resorts_searched,
     )
