@@ -144,6 +144,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
             rejected_bedrooms += 1
             continue
 
+        prop["has_sauna"] = bool(_SAUNA_PATTERN.search(_listing_text(prop)))
         filtered.append(prop)
 
     print(f"\nFiltering results:")
@@ -212,8 +213,7 @@ def build_ai_prompt(properties: list[dict]) -> str:
         if p.get("parsed_capacity"):
             lines.append(f"- Capacity: sleeps {p['parsed_capacity']}")
         lines.append(f"- Free cancellation: {'YES' if p.get('free_cancellation') else 'NO'}")
-        sauna = _SAUNA_PATTERN.search(_listing_text(p))
-        lines.append(f"- Sauna: {'YES (mentioned in listing)' if sauna else 'not mentioned in listing'}")
+        lines.append(f"- Sauna: {'YES (mentioned in listing)' if p.get('has_sauna') else 'not mentioned in listing'}")
         if p.get("street_address"):
             lines.append(f"- Address: {p['street_address']}")
         lines.append(f"- URL: {p.get('url', 'N/A')}")
@@ -358,10 +358,7 @@ def determine_fit_status(filtered: list[dict]) -> str:
     for prop in filtered:
         capacity = prop.get("parsed_capacity") or 0
         free_cancel = bool(prop.get("free_cancellation"))
-        sauna_ok = (
-            not config.REQUIRE_SAUNA
-            or bool(_SAUNA_PATTERN.search(_listing_text(prop)))
-        )
+        sauna_ok = not config.REQUIRE_SAUNA or prop.get("has_sauna", False)
         if capacity >= config.GROUP_SIZE and free_cancel and sauna_ok:
             return "perfect"
     return "potential"

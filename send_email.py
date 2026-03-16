@@ -129,8 +129,7 @@ _HTML_WRAPPER = """\
     padding-left: 0;
     list-style: none;
   }}
-  ol > li ul li,
-  ol > li ol > li {{
+  ol > li ul li {{
     margin-bottom: 4px;
     padding: 0;
     background: none;
