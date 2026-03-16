@@ -12,9 +12,10 @@ import math
 import time
 
 import httpx
-from tenacity import retry, retry_if_exception, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry
 
 import config
+from http_utils import RETRY_HTTP
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -44,24 +45,7 @@ SKIP_LIFT_TYPES = {"zip_line", "goods", "canopy"}
 WALKING_SPEED_M_PER_MIN = 67
 HAVERSINE_FACTOR = 1.3
 
-# ── Retry helpers ─────────────────────────────────────────────────────────────
-
-def _is_retryable_http_error(exc: BaseException) -> bool:
-    """Return True for HTTP 429 / 5xx errors that are worth retrying."""
-    return (
-        isinstance(exc, httpx.HTTPStatusError)
-        and exc.response.status_code in (429, 500, 502, 503, 504)
-    )
-
-_RETRY_HTTP = dict(
-    retry=retry_if_exception(_is_retryable_http_error) | retry_if_exception_type(httpx.TransportError),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    stop=stop_after_attempt(3),
-    reraise=True,
-)
-
-
-@retry(**_RETRY_HTTP)
+@retry(**RETRY_HTTP)
 async def _nominatim_get(client: httpx.AsyncClient, query: str) -> httpx.Response:
     """Single Nominatim GET with automatic retry on rate-limit / transient errors."""
     resp = await client.get(
@@ -74,7 +58,7 @@ async def _nominatim_get(client: httpx.AsyncClient, query: str) -> httpx.Respons
     return resp
 
 
-@retry(**_RETRY_HTTP)
+@retry(**RETRY_HTTP)
 async def _overpass_post(client: httpx.AsyncClient, query: str) -> httpx.Response:
     """Single Overpass POST with automatic retry on rate-limit / transient errors."""
     resp = await client.post(
