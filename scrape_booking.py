@@ -259,7 +259,7 @@ async def scrape_resort(
     print(f"    URL: {url}")
 
     page = await browser_context.new_page()
-    properties = []
+    page_props = []
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -285,20 +285,30 @@ async def scrape_resort(
 
         print(f"    Total properties found: {len(page_props)}")
 
-        # Visit detail pages for address + coordinates
-        for j, prop in enumerate(page_props):
-            prop["resort"] = resort
-            print(f"    [{j + 1}/{len(page_props)}] Getting details for: {prop.get('name', '?')}")
-            prop = await extract_detail_page_info(page, prop)
-            properties.append(prop)
-            await asyncio.sleep(1.5)  # Polite rate limiting
-
     except Exception as e:
         print(f"    Error scraping {resort}: {e}")
     finally:
         await page.close()
 
-    return properties
+    if not page_props:
+        return []
+
+    # Visit detail pages in parallel (up to 3 concurrent)
+    sem = asyncio.Semaphore(3)
+
+    async def fetch_detail(j: int, prop: dict) -> dict:
+        async with sem:
+            prop["resort"] = resort
+            print(f"    [{j + 1}/{len(page_props)}] Getting details for: {prop.get('name', '?')}")
+            detail_page = await browser_context.new_page()
+            try:
+                prop = await extract_detail_page_info(detail_page, prop)
+            finally:
+                await detail_page.close()
+            await asyncio.sleep(1.5)  # Polite rate limiting
+            return prop
+
+    return list(await asyncio.gather(*[fetch_detail(j, prop) for j, prop in enumerate(page_props)]))
 
 
 async def scrape_all(dest_ids: dict, resorts: dict, debug: bool = False) -> list[dict]:
@@ -320,34 +330,42 @@ async def scrape_all(dest_ids: dict, resorts: dict, debug: bool = False) -> list
         for resort_group, villages in resorts.items():
             if debug:
                 print(f"\n=== Resort group: {resort_group} ({len(villages)} village(s)) ===")
-            seen_urls: set[str] = set()
-            group_properties = []
 
-            n_skipped = 0
-            for village in villages:
+            # Scrape villages in parallel (up to 3 concurrent)
+            village_sem = asyncio.Semaphore(3)
+
+            async def scrape_village(village: str) -> list[dict] | None:
                 if village not in dest_ids:
                     if debug:
                         print(f"  Skipping {village} — no dest_id resolved")
+                    return None
+                async with village_sem:
+                    props = await scrape_resort(resort_group, dest_ids[village], context)
+                    await asyncio.sleep(3)  # Polite delay between village searches
+                    return props
+
+            village_results = await asyncio.gather(*[scrape_village(v) for v in villages])
+
+            # Deduplicate: a property can appear in multiple village searches
+            # if the Booking.com destination areas overlap.
+            seen_urls: set[str] = set()
+            group_properties = []
+            n_skipped = 0
+
+            for village, props in zip(villages, village_results):
+                if props is None:
                     n_skipped += 1
                     continue
-
-                props = await scrape_resort(resort_group, dest_ids[village], context)
-
-                # Deduplicate: a property can appear in multiple village searches
-                # if the Booking.com destination areas overlap.
                 new_props = []
                 for prop in props:
                     url = prop.get("url", "")
                     if url not in seen_urls:
                         seen_urls.add(url)
                         new_props.append(prop)
-
                 n_dupes = len(props) - len(new_props)
                 dupe_note = f", {n_dupes} duplicate(s) removed" if n_dupes else ""
                 print(f"  {village}: {len(new_props)} properties{dupe_note}")
-
                 group_properties.extend(new_props)
-                await asyncio.sleep(3)  # Polite delay between village searches
 
             skip_note = f", {n_skipped} village(s) skipped (no dest_id)" if n_skipped else ""
             print(f"  → {resort_group}: {len(group_properties)} unique properties total{skip_note}")
