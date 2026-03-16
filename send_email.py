@@ -4,6 +4,9 @@ import os
 
 import httpx
 import markdown as md
+from tenacity import retry
+
+from http_utils import RETRY_HTTP
 
 
 # ── HTML template ────────────────────────────────────────────────────────────
@@ -282,6 +285,19 @@ def _build_html(markdown_text: str) -> str:
     )
 
 
+@retry(**RETRY_HTTP)
+def _resend_post(api_key: str, payload: dict) -> httpx.Response:
+    """POST to the Resend API with automatic retry on rate-limit / transient errors."""
+    resp = httpx.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def send_summary_email(results_md_path: str) -> None:
@@ -309,17 +325,11 @@ def send_summary_email(results_md_path: str) -> None:
     html_body = _build_html(markdown_text)
 
     print(f"Sending results email to {recipient} via Resend...")
-    response = httpx.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "from": "SkiMaster <onboarding@resend.dev>",
-            "to": [recipient],
-            "subject": "⛷ SkiMaster — Ski Accommodation Search Results",
-            "html": html_body,
-            "text": markdown_text,
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
+    response = _resend_post(api_key, {
+        "from": "SkiMaster <onboarding@resend.dev>",
+        "to": [recipient],
+        "subject": "⛷ SkiMaster — Ski Accommodation Search Results",
+        "html": html_body,
+        "text": markdown_text,
+    })
     print(f"Email sent successfully (id={response.json().get('id')}).")

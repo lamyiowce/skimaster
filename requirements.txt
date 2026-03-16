@@ -2,3 +2,4 @@ playwright
 openai
 httpx
 markdown
+tenacity

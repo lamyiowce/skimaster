@@ -12,8 +12,10 @@ import math
 import time
 
 import httpx
+from tenacity import retry
 
 import config
+from http_utils import RETRY_HTTP
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -43,6 +45,30 @@ SKIP_LIFT_TYPES = {"zip_line", "goods", "canopy"}
 WALKING_SPEED_M_PER_MIN = 67
 HAVERSINE_FACTOR = 1.3
 
+@retry(**RETRY_HTTP)
+async def _nominatim_get(client: httpx.AsyncClient, query: str) -> httpx.Response:
+    """Single Nominatim GET with automatic retry on rate-limit / transient errors."""
+    resp = await client.get(
+        NOMINATIM_URL,
+        params={"q": query, "format": "json", "limit": 1},
+        headers=NOMINATIM_HEADERS,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp
+
+
+@retry(**RETRY_HTTP)
+async def _overpass_post(client: httpx.AsyncClient, query: str) -> httpx.Response:
+    """Single Overpass POST with automatic retry on rate-limit / transient errors."""
+    resp = await client.post(
+        OVERPASS_URL,
+        data={"data": query},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    return resp
+
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate haversine distance in meters between two coordinates."""
@@ -63,16 +89,10 @@ async def geocode_address(client: httpx.AsyncClient, address: str, resort: str =
 
     for query in queries:
         try:
-            resp = await client.get(
-                NOMINATIM_URL,
-                params={"q": query, "format": "json", "limit": 1},
-                headers=NOMINATIM_HEADERS,
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                results = resp.json()
-                if results:
-                    return float(results[0]["lat"]), float(results[0]["lon"])
+            resp = await _nominatim_get(client, query)
+            results = resp.json()
+            if results:
+                return float(results[0]["lat"]), float(results[0]["lon"])
         except Exception:
             pass
         await asyncio.sleep(1)  # Nominatim rate limit: 1 req/sec
@@ -94,14 +114,7 @@ async def find_nearby_lifts(
     """
 
     try:
-        resp = await client.post(
-            OVERPASS_URL,
-            data={"data": query},
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            return []
-
+        resp = await _overpass_post(client, query)
         data = resp.json()
         lifts = []
         seen = set()  # Deduplicate by name+type

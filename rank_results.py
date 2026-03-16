@@ -14,6 +14,7 @@ import re
 from datetime import datetime
 
 import openai
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 import config
 
@@ -248,6 +249,25 @@ For each property, provide:
 Format as a numbered Markdown list. After the top 5, add a brief summary of the overall search quality and any general observations."""
 
 
+@retry(
+    retry=retry_if_exception_type((
+        openai.RateLimitError,
+        openai.APIConnectionError,
+        openai.InternalServerError,
+    )),
+    wait=wait_exponential(multiplier=1, min=5, max=60),
+    stop=stop_after_attempt(4),
+    reraise=True,
+)
+def _openai_chat(client: openai.OpenAI, model: str, messages: list, max_tokens: int):
+    """Single OpenAI chat completion with automatic retry on rate-limit / transient errors."""
+    return client.chat.completions.create(
+        model=model,
+        max_completion_tokens=max_tokens,
+        messages=messages,
+    )
+
+
 def rank_with_ai(properties: list[dict]) -> str:
     """Send properties to OpenAI for AI ranking."""
     api_key = config.OPENAI_API_KEY
@@ -261,10 +281,11 @@ def rank_with_ai(properties: list[dict]) -> str:
         client = openai.OpenAI(api_key=api_key)
         prompt = build_ai_prompt(properties)
 
-        response = client.chat.completions.create(
-            model=config.OPENAI_MODEL,
-            max_completion_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
+        response = _openai_chat(
+            client,
+            config.OPENAI_MODEL,
+            [{"role": "user", "content": prompt}],
+            4096,
         )
 
         response_text = response.choices[0].message.content
