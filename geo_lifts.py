@@ -12,6 +12,7 @@ import math
 import time
 
 import httpx
+from tenacity import retry, retry_if_exception, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 import config
 
@@ -43,6 +44,47 @@ SKIP_LIFT_TYPES = {"zip_line", "goods", "canopy"}
 WALKING_SPEED_M_PER_MIN = 67
 HAVERSINE_FACTOR = 1.3
 
+# ── Retry helpers ─────────────────────────────────────────────────────────────
+
+def _is_retryable_http_error(exc: BaseException) -> bool:
+    """Return True for HTTP 429 / 5xx errors that are worth retrying."""
+    return (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in (429, 500, 502, 503, 504)
+    )
+
+_RETRY_HTTP = dict(
+    retry=retry_if_exception(_is_retryable_http_error) | retry_if_exception_type(httpx.TransportError),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+
+
+@retry(**_RETRY_HTTP)
+async def _nominatim_get(client: httpx.AsyncClient, query: str) -> httpx.Response:
+    """Single Nominatim GET with automatic retry on rate-limit / transient errors."""
+    resp = await client.get(
+        NOMINATIM_URL,
+        params={"q": query, "format": "json", "limit": 1},
+        headers=NOMINATIM_HEADERS,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp
+
+
+@retry(**_RETRY_HTTP)
+async def _overpass_post(client: httpx.AsyncClient, query: str) -> httpx.Response:
+    """Single Overpass POST with automatic retry on rate-limit / transient errors."""
+    resp = await client.post(
+        OVERPASS_URL,
+        data={"data": query},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    return resp
+
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate haversine distance in meters between two coordinates."""
@@ -63,16 +105,10 @@ async def geocode_address(client: httpx.AsyncClient, address: str, resort: str =
 
     for query in queries:
         try:
-            resp = await client.get(
-                NOMINATIM_URL,
-                params={"q": query, "format": "json", "limit": 1},
-                headers=NOMINATIM_HEADERS,
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                results = resp.json()
-                if results:
-                    return float(results[0]["lat"]), float(results[0]["lon"])
+            resp = await _nominatim_get(client, query)
+            results = resp.json()
+            if results:
+                return float(results[0]["lat"]), float(results[0]["lon"])
         except Exception:
             pass
         await asyncio.sleep(1)  # Nominatim rate limit: 1 req/sec
@@ -94,14 +130,7 @@ async def find_nearby_lifts(
     """
 
     try:
-        resp = await client.post(
-            OVERPASS_URL,
-            data={"data": query},
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            return []
-
+        resp = await _overpass_post(client, query)
         data = resp.json()
         lifts = []
         seen = set()  # Deduplicate by name+type

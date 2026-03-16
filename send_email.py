@@ -4,6 +4,7 @@ import os
 
 import httpx
 import markdown as md
+from tenacity import retry, retry_if_exception, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 
 # ── HTML template ────────────────────────────────────────────────────────────
@@ -282,6 +283,34 @@ def _build_html(markdown_text: str) -> str:
     )
 
 
+# ── Retry helper ──────────────────────────────────────────────────────────────
+
+def _is_retryable_http_error(exc: BaseException) -> bool:
+    """Return True for HTTP 429 / 5xx errors that are worth retrying."""
+    return (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in (429, 500, 502, 503, 504)
+    )
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_http_error) | retry_if_exception_type(httpx.TransportError),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+def _resend_post(api_key: str, payload: dict) -> httpx.Response:
+    """POST to the Resend API with automatic retry on rate-limit / transient errors."""
+    resp = httpx.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def send_summary_email(results_md_path: str) -> None:
@@ -309,17 +338,11 @@ def send_summary_email(results_md_path: str) -> None:
     html_body = _build_html(markdown_text)
 
     print(f"Sending results email to {recipient} via Resend...")
-    response = httpx.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "from": "SkiMaster <onboarding@resend.dev>",
-            "to": [recipient],
-            "subject": "⛷ SkiMaster — Ski Accommodation Search Results",
-            "html": html_body,
-            "text": markdown_text,
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
+    response = _resend_post(api_key, {
+        "from": "SkiMaster <onboarding@resend.dev>",
+        "to": [recipient],
+        "subject": "⛷ SkiMaster — Ski Accommodation Search Results",
+        "html": html_body,
+        "text": markdown_text,
+    })
     print(f"Email sent successfully (id={response.json().get('id')}).")
