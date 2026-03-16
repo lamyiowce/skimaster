@@ -109,7 +109,7 @@ _HTML_WRAPPER = """\
   li {{ margin-bottom: 6px; font-size: 15px; color: #2d3748; }}
   li p {{ margin: 0; }}
 
-  /* Top-level numbered list items (property recommendations) */
+  /* Top-level numbered list items — one card per property */
   ol > li {{
     margin-bottom: 20px;
     padding: 14px 16px;
@@ -121,7 +121,23 @@ _HTML_WRAPPER = """\
     font-size: 17px;
     color: #1e3a5f;
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+  }}
+  /* Field bullets inside a property card — no card styling */
+  ol > li ul {{
+    margin: 4px 0 0 0;
+    padding-left: 0;
+    list-style: none;
+  }}
+  ol > li ul li,
+  ol > li ol > li {{
+    margin-bottom: 4px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    border-left: none;
+    font-size: 14px;
+    color: #2d3748;
   }}
 
   strong {{ color: #1a202c; }}
