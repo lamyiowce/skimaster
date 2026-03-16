@@ -176,7 +176,10 @@ async def extract_detail_page_info(page, prop: dict) -> dict:
 
         content = await page.content()
 
-        # Try JSON-LD structured data first
+        # Try JSON-LD structured data first.
+        # Stop at the first block that yields both coordinates — later blocks
+        # may describe recommended/related properties whose geo data would
+        # otherwise overwrite the actual property's coordinates.
         json_ld_matches = re.findall(
             r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
             content,
@@ -206,13 +209,17 @@ async def extract_detail_page_info(page, prop: dict) -> dict:
                         if lat and lng:
                             prop["latitude"] = float(lat)
                             prop["longitude"] = float(lng)
+                            break  # Use first found coordinates; don't let later blocks overwrite
             except (json.JSONDecodeError, ValueError):
                 continue
 
-        # Try extracting lat/lng from page source (most reliable)
+        # Try extracting lat/lng from page source as fallback.
+        # Use a more specific pattern anchored inside a JSON object to avoid
+        # matching "latitude" fields from analytics scripts or map widgets
+        # that appear earlier in the page than the property's own coordinates.
         if not prop["latitude"]:
-            lat_match = re.search(r'"latitude"\s*:\s*(-?\d+\.?\d*)', content)
-            lng_match = re.search(r'"longitude"\s*:\s*(-?\d+\.?\d*)', content)
+            lat_match = re.search(r'"latitude"\s*:\s*(-?\d+\.\d+)', content)
+            lng_match = re.search(r'"longitude"\s*:\s*(-?\d+\.\d+)', content)
             if lat_match and lng_match:
                 prop["latitude"] = float(lat_match.group(1))
                 prop["longitude"] = float(lng_match.group(1))
