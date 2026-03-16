@@ -241,17 +241,17 @@ def build_ai_prompt(properties: list[dict]) -> str:
 
 Rank these properties and give me your **top 5** recommendations, ordered by overall suitability.
 
-Format as a numbered Markdown list with **one entry per property**. Use exactly this structure for each entry (use bullet points `-` for the fields, not a nested numbered list):
+Format as a numbered Markdown list with **one entry per property**. Use exactly this structure for each entry (use bullet points `-` for the fields, not a nested numbered list). IMPORTANT: indent each bullet by exactly **4 spaces** so the bullets are nested inside the numbered item:
 
 1. **[Property Name]** — *[Resort, Country]*
-   - **Price per person:** CHF [amount] (total stay)
-   - **Nearest lift:** [name], *[type]* — [X.X] min walk
-   - **Rating:** [X.X]/10 ([N] reviews)
-   - **Sauna:** Yes / No / Not mentioned
-   - **Free cancellation:** Yes / No
-   - **Booking link:** [Open property]([URL])
-   - **Red flags:** [any concerns — capacity, price, distance, no sauna, no free cancellation, etc. — or "None"]
-   - **Why it's ranked here:** [brief justification]
+    - **Price per person:** CHF [amount] (total stay)
+    - **Nearest lift:** [name], *[type]* — [X.X] min walk
+    - **Rating:** [X.X]/10 ([N] reviews)
+    - **Sauna:** Yes / No / Not mentioned
+    - **Free cancellation:** Yes / No
+    - **Booking link:** [Open property]([URL])
+    - **Red flags:** [any concerns — capacity, price, distance, no sauna, no free cancellation, etc. — or "None"]
+    - **Why it's ranked here:** [brief justification]
 
 After the top 5, add a brief summary of the overall search quality and any general observations."""
 
