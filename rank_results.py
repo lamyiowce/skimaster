@@ -33,6 +33,8 @@ _CAPACITY_PATTERNS = [
     re.compile(r"(\d+)\s*person", re.IGNORECASE),
     re.compile(r"(\d+)\s*beds\b", re.IGNORECASE),
 ]
+_SAUNA_PATTERN = re.compile(r"\bsauna\b", re.IGNORECASE)
+
 _MULTI_UNIT_PATTERNS = [
     re.compile(r"\b[2-9]\s*(?:apartments?|units?|chalets?|villas?)\b"),
     re.compile(r"\bapartments?\s*[2-9]\b"),
@@ -142,6 +144,7 @@ def filter_properties(properties: list[dict]) -> list[dict]:
             rejected_bedrooms += 1
             continue
 
+        prop["has_sauna"] = bool(_SAUNA_PATTERN.search(_listing_text(prop)))
         filtered.append(prop)
 
     print(f"\nFiltering results:")
@@ -210,6 +213,7 @@ def build_ai_prompt(properties: list[dict]) -> str:
         if p.get("parsed_capacity"):
             lines.append(f"- Capacity: sleeps {p['parsed_capacity']}")
         lines.append(f"- Free cancellation: {'YES' if p.get('free_cancellation') else 'NO'}")
+        lines.append(f"- Sauna: {'YES (mentioned in listing)' if p.get('has_sauna') else 'not mentioned in listing'}")
         if p.get("street_address"):
             lines.append(f"- Address: {p['street_address']}")
         lines.append(f"- URL: {p.get('url', 'N/A')}")
@@ -220,7 +224,8 @@ def build_ai_prompt(properties: list[dict]) -> str:
 ## Requirements
 - Group size: {config.GROUP_SIZE} friends
 - Dates: {config.CHECK_IN} to {config.CHECK_OUT} ({num_nights} nights)
-- Need: **Single** chalet or large apartment with sauna — everyone must stay together in one unit
+- Need: **Single** chalet or large apartment — everyone must stay together in one unit
+- **Sauna is a strong preference** — strongly prefer properties that mention a sauna
 - At least {config.MIN_BEDROOMS} bedrooms — no one sleeps in the living room
 - Max {config.MAX_WALK_TO_LIFT_MINUTES} minute walk to a ski lift
 - Budget: max {config.MAX_PRICE_PER_PERSON_CHF} CHF per person for the full stay
@@ -236,17 +241,19 @@ def build_ai_prompt(properties: list[dict]) -> str:
 
 Rank these properties and give me your **top 5** recommendations, ordered by overall suitability.
 
-For each property, provide:
-1. **Name** and resort
-2. **Price per person** in CHF (total for the stay, not per night)
-3. **Nearest lift** — name, type, and walk time
-4. **Rating** and review count
-5. **Free cancellation** — yes or no
-6. **Booking link**
-7. **Red flags** — any concerns (too expensive, far from lifts, low rating, small capacity, too few bedrooms, multiple separate units, no free cancellation, etc.)
-8. **Why it's ranked here** — brief justification
+Format as a numbered Markdown list with **one entry per property**. Use exactly this structure for each entry (use bullet points `-` for the fields, not a nested numbered list):
 
-Format as a numbered Markdown list. After the top 5, add a brief summary of the overall search quality and any general observations."""
+1. **[Property Name]** — *[Resort, Country]*
+   - **Price per person:** CHF [amount] (total stay)
+   - **Nearest lift:** [name], *[type]* — [X.X] min walk
+   - **Rating:** [X.X]/10 ([N] reviews)
+   - **Sauna:** Yes / No / Not mentioned
+   - **Free cancellation:** Yes / No
+   - **Booking link:** [Open property]([URL])
+   - **Red flags:** [any concerns — capacity, price, distance, no sauna, no free cancellation, etc. — or "None"]
+   - **Why it's ranked here:** [brief justification]
+
+After the top 5, add a brief summary of the overall search quality and any general observations."""
 
 
 @retry(
@@ -338,11 +345,31 @@ def fallback_ranking(properties: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def determine_fit_status(filtered: list[dict]) -> str:
+    """Return 'perfect', 'potential', or 'none' based on the filtered property list.
+
+    perfect   — at least one property meets all soft requirements
+                (capacity ≥ group size, free cancellation, sauna if required)
+    potential — properties found but none fully meets all soft requirements
+    none      — no properties survived the hard filters
+    """
+    if not filtered:
+        return "none"
+    for prop in filtered:
+        capacity = prop.get("parsed_capacity") or 0
+        free_cancel = bool(prop.get("free_cancellation"))
+        sauna_ok = not config.REQUIRE_SAUNA or prop.get("has_sauna", False)
+        if capacity >= config.GROUP_SIZE and free_cancel and sauna_ok:
+            return "perfect"
+    return "potential"
+
+
 def write_results(
     ai_ranking: str, properties: list[dict], output_md: str, output_csv: str
 ):
     """Write results to Markdown and CSV files."""
     num_nights = calculate_num_nights()
+    fit_status = determine_fit_status(properties)
 
     # Markdown report
     md_lines = [
@@ -354,6 +381,7 @@ def write_results(
         f"**Budget:** max {config.MAX_PRICE_PER_PERSON_CHF} CHF/person",
         f"**Max walk to lift:** {config.MAX_WALK_TO_LIFT_MINUTES} min",
         f"**Properties analyzed:** {len(properties)}",
+        f"**Fit status:** {fit_status}",
         "",
         "---",
         "",
