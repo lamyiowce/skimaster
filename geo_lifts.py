@@ -252,7 +252,7 @@ async def enrich_all(properties: list[dict]) -> list[dict]:
 
         # Phase 2: Lift lookup (parallel, capped at 5 concurrent requests)
         print(f"\n  [lifts] start — querying Overpass in parallel")
-        sem = asyncio.Semaphore(5)
+        sem = asyncio.Semaphore(3)
         has_coords = [p for p in properties if p.get("latitude") is not None]
         no_coords = [p for p in properties if p.get("latitude") is None]
         for p in no_coords:
