@@ -15,11 +15,6 @@ on:
         description: "Max price per person (CHF)"
         required: false
         default: ""
-      skip_scrape:
-        description: "Skip scraping (use cached results)"
-        required: false
-        type: boolean
-        default: false
       resort:
         description: "Filter to a single resort (substring match, e.g. 'Les Arcs')"
         required: false
@@ -29,9 +24,34 @@ on:
     - cron: "0 6 * * *"  # Every day at 6am UTC
 
 jobs:
+  # ── Per-resort scrape jobs (run in parallel) ────────────────────────────────
   search:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        resort:
+          - "St. Anton am Arlberg, Austria"
+          - "Ischgl, Austria"
+          - "Sölden, Austria"
+          - "Saalbach-Hinterglemm, Austria"
+          - "Cervinia, Italy"
+          - "Selva di Val Gardena, Italy"
+          - "Sestriere, Italy"
+          - "Madonna di Campiglio, Italy"
+          - "Val Thorens, France"
+          - "Les Menuires, France"
+          - "Tignes, France"
+          - "Val d'Isère, France"
+          - "La Plagne, France"
+          - "Les Arcs, France"
+          - "Alpe d'Huez, France"
+          - "Avoriaz, France"
+          - "Chamonix, France"
+          - "La Rosière, France"
+    # Skip jobs that don't match the optional resort filter
+    if: ${{ !github.event.inputs.resort || contains(matrix.resort, github.event.inputs.resort) }}
 
     steps:
       - name: Checkout repository
@@ -64,7 +84,6 @@ jobs:
           check_out = os.environ.get("INPUT_CHECK_OUT", "")
           max_price = os.environ.get("INPUT_MAX_PRICE", "")
 
-          # Validate date format
           date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
           if check_in and date_re.match(check_in):
               overrides.append(f'CHECK_IN = "{check_in}"')
@@ -76,7 +95,6 @@ jobs:
           if overrides:
               with open("config_overrides.py", "w") as f:
                   f.write("\n".join(overrides) + "\n")
-              # Patch config.py to load overrides
               with open("config.py", "a") as f:
                   f.write("\ntry:\n    from config_overrides import *\nexcept ImportError:\n    pass\n")
               print("Applied config overrides:", overrides)
@@ -84,22 +102,123 @@ jobs:
               print("No config overrides to apply.")
           PYEOF
 
-      - name: Run ski search
+      - name: Scrape resort
+        run: python ski_search.py --resort "${{ matrix.resort }}" --scrape-only
+
+      - name: Compute artifact slug
+        id: slug
+        run: |
+          SLUG=$(python3 -c "
+          import re, sys
+          s = '${{ matrix.resort }}'
+          s = re.sub(r'[^a-z0-9]', '-', s.lower())
+          s = re.sub(r'-+', '-', s).strip('-')
+          print(s)
+          ")
+          echo "name=raw-$SLUG" >> $GITHUB_OUTPUT
+
+      - name: Upload raw scrape results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.slug.outputs.name }}
+          path: raw_results.json
+
+  # ── Merge job: geo-enrich + rank + email ────────────────────────────────────
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: search
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Override config from inputs
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          INPUT_CHECK_IN: ${{ github.event.inputs.check_in }}
+          INPUT_CHECK_OUT: ${{ github.event.inputs.check_out }}
+          INPUT_MAX_PRICE: ${{ github.event.inputs.max_price_pp }}
+        run: |
+          python - <<'PYEOF'
+          import os
+          import re
+
+          overrides = []
+          check_in = os.environ.get("INPUT_CHECK_IN", "")
+          check_out = os.environ.get("INPUT_CHECK_OUT", "")
+          max_price = os.environ.get("INPUT_MAX_PRICE", "")
+
+          date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+          if check_in and date_re.match(check_in):
+              overrides.append(f'CHECK_IN = "{check_in}"')
+          if check_out and date_re.match(check_out):
+              overrides.append(f'CHECK_OUT = "{check_out}"')
+          if max_price and max_price.isdigit():
+              overrides.append(f'MAX_PRICE_PER_PERSON_CHF = {max_price}')
+
+          if overrides:
+              with open("config_overrides.py", "w") as f:
+                  f.write("\n".join(overrides) + "\n")
+              with open("config.py", "a") as f:
+                  f.write("\ntry:\n    from config_overrides import *\nexcept ImportError:\n    pass\n")
+              print("Applied config overrides:", overrides)
+          else:
+              print("No config overrides to apply.")
+          PYEOF
+
+      - name: Download all raw scrape artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: raw-*
+          path: raw-artifacts
+
+      - name: Merge raw results
+        run: |
+          python3 - <<'PYEOF'
+          import json, glob, sys
+
+          files = sorted(glob.glob("raw-artifacts/*/raw_results.json"))
+          if not files:
+              print("No raw_results.json artifacts found — all search jobs may have failed.")
+              sys.exit(1)
+
+          all_properties = []
+          all_resorts = []
+          for path in files:
+              with open(path) as fh:
+                  data = json.load(fh)
+              if isinstance(data, list):
+                  all_properties.extend(data)
+              else:
+                  all_properties.extend(data.get("properties", []))
+                  all_resorts.extend(data.get("resorts_searched", []))
+              print(f"  {path}: {len(data.get('properties', data) if isinstance(data, dict) else data)} properties")
+
+          merged = {"resorts_searched": all_resorts, "properties": all_properties}
+          with open("raw_results.json", "w") as fh:
+              json.dump(merged, fh, indent=2, ensure_ascii=False, default=str)
+          print(f"\nMerged {len(all_properties)} properties from {len(files)} resort(s).")
+          PYEOF
+
+      - name: Run geo-enrichment, ranking and email
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          INPUT_SKIP_SCRAPE: ${{ github.event.inputs.skip_scrape }}
-          INPUT_RESORT: ${{ github.event.inputs.resort }}
-        run: |
-          CMD=(python ski_search.py)
-          if [ "$INPUT_SKIP_SCRAPE" = "true" ] && [ -f raw_results.json ]; then
-            CMD+=(--from-cache raw_results.json)
-          fi
-          if [ -n "$INPUT_RESORT" ]; then
-            CMD+=(--resort "$INPUT_RESORT")
-          fi
-          "${CMD[@]}"
+        run: python ski_search.py --from-cache raw_results.json
 
       - name: Upload results as artifact
         uses: actions/upload-artifact@v4
