@@ -16,7 +16,7 @@ on:
         required: false
         default: ""
       resort:
-        description: "Filter to a single resort (substring match, e.g. 'Les Arcs')"
+        description: "Filter to a single resort (case-sensitive substring, e.g. 'Les Arcs')"
         required: false
         default: ""
 
@@ -50,7 +50,7 @@ jobs:
           - "Avoriaz, France"
           - "Chamonix, France"
           - "La Rosière, France"
-    # Skip jobs that don't match the optional resort filter
+    # Skip jobs that don't match the optional resort filter (case-sensitive substring)
     if: ${{ !github.event.inputs.resort || contains(matrix.resort, github.event.inputs.resort) }}
 
     steps:
@@ -61,6 +61,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
@@ -74,47 +75,17 @@ jobs:
           INPUT_CHECK_IN: ${{ github.event.inputs.check_in }}
           INPUT_CHECK_OUT: ${{ github.event.inputs.check_out }}
           INPUT_MAX_PRICE: ${{ github.event.inputs.max_price_pp }}
-        run: |
-          python - <<'PYEOF'
-          import os
-          import re
-
-          overrides = []
-          check_in = os.environ.get("INPUT_CHECK_IN", "")
-          check_out = os.environ.get("INPUT_CHECK_OUT", "")
-          max_price = os.environ.get("INPUT_MAX_PRICE", "")
-
-          date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-          if check_in and date_re.match(check_in):
-              overrides.append(f'CHECK_IN = "{check_in}"')
-          if check_out and date_re.match(check_out):
-              overrides.append(f'CHECK_OUT = "{check_out}"')
-          if max_price and max_price.isdigit():
-              overrides.append(f'MAX_PRICE_PER_PERSON_CHF = {max_price}')
-
-          if overrides:
-              with open("config_overrides.py", "w") as f:
-                  f.write("\n".join(overrides) + "\n")
-              with open("config.py", "a") as f:
-                  f.write("\ntry:\n    from config_overrides import *\nexcept ImportError:\n    pass\n")
-              print("Applied config overrides:", overrides)
-          else:
-              print("No config overrides to apply.")
-          PYEOF
+        run: python scripts/apply_config_overrides.py
 
       - name: Scrape resort
         run: python ski_search.py --resort "${{ matrix.resort }}" --scrape-only
 
       - name: Compute artifact slug
         id: slug
+        env:
+          RESORT: ${{ matrix.resort }}
         run: |
-          SLUG=$(python3 -c "
-          import re, sys
-          s = '${{ matrix.resort }}'
-          s = re.sub(r'[^a-z0-9]', '-', s.lower())
-          s = re.sub(r'-+', '-', s).strip('-')
-          print(s)
-          ")
+          SLUG=$(echo "$RESORT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
           echo "name=raw-$SLUG" >> $GITHUB_OUTPUT
 
       - name: Upload raw scrape results
@@ -138,12 +109,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          playwright install chromium
-          playwright install-deps chromium
+        run: pip install -r requirements.txt
 
       - name: Override config from inputs
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -151,33 +120,7 @@ jobs:
           INPUT_CHECK_IN: ${{ github.event.inputs.check_in }}
           INPUT_CHECK_OUT: ${{ github.event.inputs.check_out }}
           INPUT_MAX_PRICE: ${{ github.event.inputs.max_price_pp }}
-        run: |
-          python - <<'PYEOF'
-          import os
-          import re
-
-          overrides = []
-          check_in = os.environ.get("INPUT_CHECK_IN", "")
-          check_out = os.environ.get("INPUT_CHECK_OUT", "")
-          max_price = os.environ.get("INPUT_MAX_PRICE", "")
-
-          date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-          if check_in and date_re.match(check_in):
-              overrides.append(f'CHECK_IN = "{check_in}"')
-          if check_out and date_re.match(check_out):
-              overrides.append(f'CHECK_OUT = "{check_out}"')
-          if max_price and max_price.isdigit():
-              overrides.append(f'MAX_PRICE_PER_PERSON_CHF = {max_price}')
-
-          if overrides:
-              with open("config_overrides.py", "w") as f:
-                  f.write("\n".join(overrides) + "\n")
-              with open("config.py", "a") as f:
-                  f.write("\ntry:\n    from config_overrides import *\nexcept ImportError:\n    pass\n")
-              print("Applied config overrides:", overrides)
-          else:
-              print("No config overrides to apply.")
-          PYEOF
+        run: python scripts/apply_config_overrides.py
 
       - name: Download all raw scrape artifacts
         uses: actions/download-artifact@v4
@@ -200,12 +143,11 @@ jobs:
           for path in files:
               with open(path) as fh:
                   data = json.load(fh)
-              if isinstance(data, list):
-                  all_properties.extend(data)
-              else:
-                  all_properties.extend(data.get("properties", []))
+              props = data if isinstance(data, list) else data.get("properties", [])
+              all_properties.extend(props)
+              if isinstance(data, dict):
                   all_resorts.extend(data.get("resorts_searched", []))
-              print(f"  {path}: {len(data.get('properties', data) if isinstance(data, dict) else data)} properties")
+              print(f"  {path}: {len(props)} properties")
 
           merged = {"resorts_searched": all_resorts, "properties": all_properties}
           with open("raw_results.json", "w") as fh:
