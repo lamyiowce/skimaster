@@ -16,7 +16,7 @@ on:
         required: false
         default: ""
       resort:
-        description: "Filter to a single resort (case-sensitive substring, e.g. 'Les Arcs')"
+        description: "Filter to a single resort (case-insensitive substring, e.g. 'Les Arcs')"
         required: false
         default: ""
 
@@ -24,34 +24,65 @@ on:
     - cron: "0 6 * * *"  # Every day at 6am UTC
 
 jobs:
+  # ── Setup: compute which resorts to run ─────────────────────────────────────
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      resorts: ${{ steps.filter.outputs.resorts }}
+    steps:
+      - name: Compute resort list
+        id: filter
+        env:
+          RESORT_FILTER: ${{ github.event.inputs.resort }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+
+          all_resorts = [
+              "St. Anton am Arlberg, Austria",
+              "Ischgl, Austria",
+              "Sölden, Austria",
+              "Saalbach-Hinterglemm, Austria",
+              "Cervinia, Italy",
+              "Selva di Val Gardena, Italy",
+              "Sestriere, Italy",
+              "Madonna di Campiglio, Italy",
+              "Val Thorens, France",
+              "Les Menuires, France",
+              "Tignes, France",
+              "Val d'Isère, France",
+              "La Plagne, France",
+              "Les Arcs, France",
+              "Alpe d'Huez, France",
+              "Avoriaz, France",
+              "Chamonix, France",
+              "La Rosière, France",
+          ]
+
+          f = os.environ.get("RESORT_FILTER", "").strip().lower()
+          if f:
+              resorts = [r for r in all_resorts if f in r.lower()]
+              if not resorts:
+                  print(f"Warning: no resorts match filter '{f}'. Running all.")
+                  resorts = all_resorts
+          else:
+              resorts = all_resorts
+
+          result = json.dumps(resorts)
+          print(f"Resorts to run ({len(resorts)}): {result}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"resorts={result}\n")
+          PYEOF
+
   # ── Per-resort scrape jobs (run in parallel) ────────────────────────────────
   search:
+    needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        resort:
-          - "St. Anton am Arlberg, Austria"
-          - "Ischgl, Austria"
-          - "Sölden, Austria"
-          - "Saalbach-Hinterglemm, Austria"
-          - "Cervinia, Italy"
-          - "Selva di Val Gardena, Italy"
-          - "Sestriere, Italy"
-          - "Madonna di Campiglio, Italy"
-          - "Val Thorens, France"
-          - "Les Menuires, France"
-          - "Tignes, France"
-          - "Val d'Isère, France"
-          - "La Plagne, France"
-          - "Les Arcs, France"
-          - "Alpe d'Huez, France"
-          - "Avoriaz, France"
-          - "Chamonix, France"
-          - "La Rosière, France"
-    # Skip jobs that don't match the optional resort filter (case-sensitive substring)
-    if: ${{ !github.event.inputs.resort || contains(matrix.resort, github.event.inputs.resort) }}
+        resort: ${{ fromJson(needs.setup.outputs.resorts) }}
 
     steps:
       - name: Checkout repository
